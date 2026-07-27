@@ -1,70 +1,38 @@
-# Render Blueprint — https://render.com/docs/blueprint-spec
-# Deploy: connect this repo in Render Dashboard → New → Blueprint
+# Render Blueprint — keep this minimal so sync succeeds.
+# Add secrets later in the Dashboard → Environment.
+# Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
     name: patriotic-youths-uganda
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build
-    startCommand: npm run start
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
-        value: "20.18.0"
+        value: "20"
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_DEMO_MODE
         value: "true"
       - key: NEXT_PUBLIC_APP_NAME
         value: Patriotic Youths of Uganda
-      - key: NEXT_PUBLIC_APP_URL
-        sync: false
       - key: NEXT_PUBLIC_SQUARE_ENABLED
         value: "true"
       - key: SQUARE_ENV
-        sync: false
+        value: production
       - key: NEXT_PUBLIC_SQUARE_ENV
-        sync: false
-      - key: NEXT_PUBLIC_SQUARE_APPLICATION_ID
-        sync: false
-      - key: SQUARE_ACCESS_TOKEN
-        sync: false
-      - key: NEXT_PUBLIC_SQUARE_LOCATION_ID
-        sync: false
-      - key: SQUARE_LOCATION_ID
-        sync: false
+        value: production
       - key: SQUARE_LOCATION_CURRENCY
         value: USD
       - key: SQUARE_UGX_PER_USD
         value: "3700"
       - key: NEXT_PUBLIC_MOMO_ENABLED
         value: "true"
-      - key: NEXT_PUBLIC_MOMO_ENV
-        sync: false
       - key: NEXT_PUBLIC_MOMO_CURRENCY
         value: UGX
-      - key: MOMO_BASE_URL
-        sync: false
-      - key: MOMO_TARGET_ENVIRONMENT
-        sync: false
-      - key: MOMO_API_USER_ID
-        sync: false
-      - key: MOMO_API_KEY
-        sync: false
-      - key: MOMO_COLLECTION_SUBSCRIPTION_KEY
-        sync: false
-      - key: NEXT_PUBLIC_MOMO_API_USER_ID
-        sync: false
-      - key: NEXT_PUBLIC_AIRTEL_ENABLED
-        value: "true"
-      - key: AIRTEL_ENV
-        sync: false
-      - key: AIRTEL_BASE_URL
-        sync: false
-      - key: AIRTEL_CLIENT_ID
-        sync: false
-      - key: AIRTEL_CLIENT_SECRET
-        sync: false
       - key: AUTH_SECRET
         generateValue: true
