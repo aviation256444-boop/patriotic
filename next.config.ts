@@ -2,8 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Smaller image for Render / container deploys
-  output: "standalone",
   // Allow larger image uploads via App Router route handlers
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
