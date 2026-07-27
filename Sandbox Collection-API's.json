@@ -1,0 +1,364 @@
+{
+  "info": {
+    "name": "Sandbox Collection-API's",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "71207257-9dac-4708-9bf8-e7362c9bcc57",
+    "_exporter_id": "43974523"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/auth/oauth2/token",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "auth",
+            "oauth2",
+            "token"
+          ]
+        },
+        "body": {
+          "raw": "{\n    \"client_id\": \"4c6339c0-c07e-4b88-804d-cc047604c228\",\n    \"client_secret\": \"c7c3966b-a434-499a-869f-8558e65a9913\",\n    \"grant_type\": \"client_credentials\"\n}",
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_738_2967769=zRmQfdGHiyPPSVPZcec9CkRViGgAAAAAjB+eGHE3dnOlJqWgZ/NzMg==; nlbi_2967769=S0WoS8/ErGZMA2F6meq1mAAAAABKpWJFqo9ijajU9Iwkn8Wa; visid_incap_2967769=LlgVvNG+Qc2kQa39YsoGbUNViGgAAAAAQUIPAAAAAAB6P84uv3jQUg7kVegTsIGN; visid_incap_2967769=LlgVvNG+Qc2kQa39YsoGbUNViGgAAAAAQUIPAAAAAAB6P84uv3jQUg7kVegTsIGN; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQUIPAAAAAAC21dv97LbCP0iYHUicRE9F; incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "POST"
+      },
+      "response": []
+    },
+    {
+      "name": "Payments V1",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/merchant/v1/payments/",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "merchant",
+            "v1",
+            "payments",
+            ""
+          ]
+        },
+        "body": {
+          "raw": "{\n    \"reference\": \"Testing transaction\",\n    \"subscriber\": {\n        \"country\": \"UG\",\n        \"currency\": \"UGX\",\n        \"msisdn\": \"752601323\"\n    },\n    \"transaction\": {\n        \"amount\": \"5000\",\n        \"country\": \"UG\",\n        \"currency\": \"UGX\",\n        \"id\": \"TEST01\"\n    }\n}",
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer mit8BOCv8rAVBRWwMg6Brpf9J5SZ31JF"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "POST"
+      },
+      "response": []
+    },
+    {
+      "name": "Enquiry V1",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/standard/v1/payments/TEST01",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "standard",
+            "v1",
+            "payments",
+            "TEST01"
+          ]
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer faT5LrPSl1XrrhV4sIl6ZmfE2aX5mKRK"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ",
+            "disabled": true
+          }
+        ],
+        "method": "GET"
+      },
+      "response": []
+    },
+    {
+      "name": "Refund V1",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/standard/v1/payments/refund",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "standard",
+            "v1",
+            "payments",
+            "refund"
+          ]
+        },
+        "body": {
+          "raw": "{\n    \"transaction\": {\n        \"airtel_money_id\": \"COLL-GJGGIJ689782-TEST01\"\n    }\n}\n",
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer PTIiyCqou3dLZOrOvvZtqvUOzzZudKH9"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "POST"
+      },
+      "response": []
+    },
+    {
+      "name": "Payments V2",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/merchant/v2/payments/",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "merchant",
+            "v2",
+            "payments",
+            ""
+          ]
+        },
+        "body": {
+          "raw": "{\n    \"reference\": \"Testing transaction\",\n    \"subscriber\": {\n        \"country\": \"UG\",\n        \"currency\": \"UGX\",\n        \"msisdn\": \"176772001\"\n    },\n    \"transaction\": {\n        \"amount\": \"5000\",\n        \"country\": \"UG\",\n        \"currency\": \"UGX\",\n        \"id\": \"abc123345\"\n    }\n}",
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer xkODXzO9niEQRbZksH8XReb6KBG3OJTt"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ; incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "POST"
+      },
+      "response": []
+    },
+    {
+      "name": "Enquiry V2",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/standard/v2/payments/abc123345",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "standard",
+            "v2",
+            "payments",
+            "abc123345"
+          ]
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer YyvFRK2pbN5lFW2b3yIgpBq3zB8pD9FJ"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "GET"
+      },
+      "response": []
+    },
+    {
+      "name": "Refund V2",
+      "request": {
+        "url": {
+          "raw": "https://openapi.airtel.ug/simulate/standard/v2/payments/refund",
+          "host": [
+            "https://openapi.airtel.ug"
+          ],
+          "path": [
+            "simulate",
+            "standard",
+            "v2",
+            "payments",
+            "refund"
+          ]
+        },
+        "body": {
+          "raw": "{\n    \"transaction\": {\n        \"airtel_money_id\": \"C17we62\"\n    }\n}\n",
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "*/*"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Country",
+            "value": "UG"
+          },
+          {
+            "key": "X-Currency",
+            "value": "UGX"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer GMzvA23s31MdTYoQ3IWKwxOXdDNuJ4bQ"
+          },
+          {
+            "key": "Cookie",
+            "value": "incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ; incap_ses_743_3269099=Fj5fRAUn3ieZgl+sBKtPCuz0YGkAAAAAhd9nlnhkwtIS65y6zYzVWg==; nlbi_3269099=VTyOW2LF1F+S8yY1CiA2awAAAAAMq4F7etetZ10GnJBImpAK; visid_incap_3269099=r3oa3pKPTLSKz+hlWHjrx3nJ+WgAAAAAQkIPAAAAAABb35aBoCwenpxlFtjCpNEQ"
+          }
+        ],
+        "method": "POST"
+      },
+      "response": []
+    }
+  ]
+}

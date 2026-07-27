@@ -1,0 +1,275 @@
+import { NextResponse } from "next/server";
+import { getCollection, upsertItem } from "@/lib/cms/store";
+import { getRequestToPayStatus } from "@/lib/momo/collections";
+import { getAirtelPaymentStatus } from "@/lib/airtel/collections";
+import type { CmsDonation } from "@/lib/cms/types";
+
+export const dynamic = "force-dynamic";
+
+type DonationRow = CmsDonation & {
+  momoReferenceId?: string;
+  airtelTransactionId?: string;
+  externalId?: string;
+  paymentMethod?: string;
+  demoMode?: boolean;
+  liveCharge?: boolean;
+  financialTransactionId?: string;
+};
+
+/**
+ * Finalize payment.
+ * Live MTN MoMo: only marks completed when Collections status is SUCCESSFUL
+ * (real wallet charge after donor enters PIN on phone).
+ * Demo / other gateways: allow client-driven complete for testing.
+ */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const paymentId = String(body.paymentId || "");
+    const externalId = String(body.externalId || "");
+    const statusIn = String(body.status || "completed").toLowerCase();
+    const providerRef = body.providerRef ? String(body.providerRef) : "";
+    const pin = body.pin ? String(body.pin) : "";
+    // cardNumber reserved for future card validation on confirm
+    void (body.cardNumber ? String(body.cardNumber).replace(/\s/g, "") : "");
+
+    const donations = (await getCollection("donations")) as DonationRow[];
+
+    const donation =
+      donations.find((d) => d.id === paymentId) ||
+      donations.find((d) => d.externalId === externalId);
+
+    if (!donation) {
+      return NextResponse.json({ error: "Payment not found. Start checkout again." }, { status: 404 });
+    }
+
+    const gateway = donation.paymentMethod || body.gateway || "mtn_momo";
+    const ref =
+      providerRef ||
+      donation.airtelTransactionId ||
+      donation.momoReferenceId ||
+      "";
+    const isLiveMomo =
+      gateway === "mtn_momo" &&
+      Boolean(donation.liveCharge) &&
+      Boolean(ref) &&
+      !String(ref).startsWith("MOMO-DEMO");
+    const isLiveAirtel =
+      gateway === "airtel_money" &&
+      Boolean(donation.liveCharge) &&
+      Boolean(ref) &&
+      !String(ref).startsWith("AIRTEL-DEMO");
+
+    // ── Live Airtel: Airtel is source of truth ────────────────────────
+    if (
+      isLiveAirtel ||
+      (gateway === "airtel_money" && body.poll && ref && !donation.demoMode)
+    ) {
+      const poll = await getAirtelPaymentStatus(ref);
+
+      if (poll.status === "SUCCESSFUL") {
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "completed",
+            airtelTransactionId: ref,
+            momoReferenceId: ref,
+            paymentReference: ref,
+            paidAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: true,
+          status: "completed",
+          live: true,
+          airtelStatus: poll.status,
+          donation: updated,
+          receipt: receipt(donation, gateway, "completed"),
+        });
+      }
+
+      if (poll.status === "FAILED") {
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "failed",
+            airtelTransactionId: ref,
+            failureReason: poll.message || poll.error || "FAILED",
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: false,
+          status: "failed",
+          live: true,
+          airtelStatus: poll.status,
+          reason: poll.message || poll.error,
+          donation: updated,
+          error: poll.message || "Payment was declined or failed on Airtel Money",
+        });
+      }
+
+      if (poll.status === "PENDING") {
+        return NextResponse.json({
+          success: true,
+          status: "pending",
+          live: true,
+          airtelStatus: "PENDING",
+          message: "Waiting for you to approve on your phone with Airtel Money PIN…",
+        });
+      }
+
+      return NextResponse.json({
+        success: false,
+        status: "pending",
+        live: true,
+        airtelStatus: poll.status,
+        error: poll.error || "Could not verify payment with Airtel yet",
+      });
+    }
+
+    // ── Live MTN: MTN is source of truth ──────────────────────────────
+    if (isLiveMomo || (gateway === "mtn_momo" && body.poll && ref && !donation.demoMode)) {
+      const poll = await getRequestToPayStatus(ref);
+
+      if (poll.status === "SUCCESSFUL") {
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "completed",
+            momoReferenceId: ref,
+            paymentReference: poll.financialTransactionId || ref,
+            financialTransactionId: poll.financialTransactionId,
+            paidAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: true,
+          status: "completed",
+          live: true,
+          momoStatus: poll.status,
+          donation: updated,
+          receipt: receipt(donation, gateway, "completed"),
+        });
+      }
+
+      if (poll.status === "FAILED") {
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "failed",
+            momoReferenceId: ref,
+            failureReason: poll.reason || poll.error || "FAILED",
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: false,
+          status: "failed",
+          live: true,
+          momoStatus: poll.status,
+          reason: poll.reason || poll.error,
+          donation: updated,
+          error: poll.reason || "Payment was declined or failed on MTN MoMo",
+        });
+      }
+
+      if (poll.status === "PENDING") {
+        return NextResponse.json({
+          success: true,
+          status: "pending",
+          live: true,
+          momoStatus: "PENDING",
+          message: "Waiting for you to approve on your phone with MoMo PIN…",
+        });
+      }
+
+      return NextResponse.json({
+        success: false,
+        status: "pending",
+        live: true,
+        momoStatus: poll.status,
+        error: poll.error || "Could not verify payment with MTN yet",
+      });
+    }
+
+    // ── Demo / card / bank / Airtel demo ──────────────────────────────
+    if (statusIn === "completed" || statusIn === "successful") {
+      if (gateway === "mtn_momo" || gateway === "airtel_money") {
+        if (body.requirePin === true || (pin && pin.length > 0)) {
+          if (!/^\d{4,5}$/.test(pin)) {
+            return NextResponse.json(
+              { error: "Enter a valid MoMo PIN (4 or 5 digits)" },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+
+    let finalStatus: "completed" | "failed" | "pending" =
+      statusIn === "failed" ? "failed" : statusIn === "pending" ? "pending" : "completed";
+
+    if (statusIn === "completed" || statusIn === "successful") {
+      finalStatus = "completed";
+    }
+
+    const updated = await upsertItem(
+      "donations",
+      {
+        ...donation,
+        id: donation.id,
+        status: finalStatus,
+        momoReferenceId: ref || donation.momoReferenceId || null,
+        paymentReference: providerRef || donation.paymentReference || null,
+        paidAt: finalStatus === "completed" ? new Date().toISOString() : undefined,
+        updatedAt: new Date().toISOString(),
+      },
+      "checkout-confirm"
+    );
+
+    return NextResponse.json({
+      success: true,
+      status: finalStatus,
+      live: false,
+      donation: updated,
+      receipt: receipt(donation, gateway, finalStatus),
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Confirm failed" },
+      { status: 500 }
+    );
+  }
+}
+
+function receipt(
+  donation: DonationRow,
+  gateway: string,
+  status: string
+) {
+  return {
+    paymentId: donation.id,
+    externalId: donation.externalId,
+    amount: donation.amount,
+    currency: donation.currency,
+    gateway,
+    status,
+    paidAt: status === "completed" ? new Date().toISOString() : null,
+  };
+}
