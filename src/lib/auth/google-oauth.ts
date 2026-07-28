@@ -18,14 +18,14 @@ type GoogleTokenInfo = {
   error_description?: string;
 };
 
-/** Client ID from Render env (either name works). */
+/** Client ID from Render env (either name works). Strip quotes/spaces. */
 export function getGoogleClientId(): string {
-  return (
+  const raw =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     process.env.GOOGLE_CLIENT_ID ||
     process.env.GOOGLE_OAUTH_CLIENT_ID ||
-    ""
-  ).trim();
+    "";
+  return raw.trim().replace(/^["']|["']$/g, "");
 }
 
 export async function loginWithGoogleIdToken(idToken: string): Promise<User> {

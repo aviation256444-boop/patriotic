@@ -59,3 +59,8 @@ services:
         value: "true"
       - key: AUTH_SECRET
         generateValue: true
+      # Set this in the Render dashboard after creating a Google OAuth Web client:
+      # NEXT_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+      # Optional: show email OTP codes when Resend is not configured
+      - key: AUTH_SHOW_OTP
+        value: "true"

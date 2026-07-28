@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DashboardSidebar, superAdminNav } from "@/components/dashboard/sidebar";
 import { useAuthStore } from "@/store/auth-store";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataGuardian } from "@/components/auth/data-guardian";
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const { user, isSuperAdmin, refreshUser } = useAuthStore();
@@ -37,6 +38,8 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
 
   return (
     <div className="min-h-screen bg-muted/20">
+      {/* Auto-save / restore accounts so code deploys do not wipe logins */}
+      <DataGuardian />
       <DashboardSidebar nav={superAdminNav} title="Super Admin" accent="red" />
       <div className="lg:pl-64 pt-14 lg:pt-0">
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">{children}</div>

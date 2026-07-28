@@ -1,7 +1,9 @@
 /**
- * Durable JSON file helpers: atomic write + rolling backup so data
- * is not lost on crash / partial write. (Free hosts still wipe on
- * full redeploy — use Super Admin → Backup regularly.)
+ * Durable JSON file helpers: atomic write + rolling backup.
+ * Also restores from .bak / backups/*.latest before treating data as empty.
+ *
+ * Note: free Render wipes the whole disk on redeploy. Use Super Admin backup
+ * + browser snapshot (users) so accounts can be restored automatically.
  */
 
 import {
@@ -12,8 +14,9 @@ import {
   writeFileSync,
   copyFileSync,
   unlinkSync,
+  readdirSync,
 } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, basename } from "path";
 
 export function ensureDir(dir: string) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -35,21 +38,23 @@ export function writeAtomic(filePath: string, content: string) {
   }
 }
 
-/** Keep a restore copy next to the file: users.json.bak */
+/** Keep restore copies: file.bak + data/backups/<name>.latest + timestamped */
 export function writeWithBackup(filePath: string, content: string) {
   ensureDir(dirname(filePath));
   if (existsSync(filePath)) {
     try {
       copyFileSync(filePath, `${filePath}.bak`);
     } catch {
-      /* ignore backup failure */
+      /* ignore */
     }
-    // Also keep a dated snapshot (max noise: overwrite "latest")
     try {
       const snapDir = join(dirname(filePath), "backups");
       ensureDir(snapDir);
-      const base = filePath.split(/[/\\]/).pop() || "data.json";
+      const base = basename(filePath);
       copyFileSync(filePath, join(snapDir, `${base}.latest`));
+      // keep one timestamped copy (overwrite same hour bucket to limit growth)
+      const hour = new Date().toISOString().slice(0, 13).replace(/[-:T]/g, "");
+      copyFileSync(filePath, join(snapDir, `${base}.${hour}`));
     } catch {
       /* ignore */
     }
@@ -57,30 +62,56 @@ export function writeWithBackup(filePath: string, content: string) {
   writeAtomic(filePath, content);
 }
 
-export function readJsonFile<T>(filePath: string): T | null {
+function tryParseJson<T>(raw: string): T | null {
   try {
-    if (!existsSync(filePath)) {
-      // try .bak
-      if (existsSync(`${filePath}.bak`)) {
-        const raw = readFileSync(`${filePath}.bak`, "utf8");
-        return JSON.parse(raw) as T;
-      }
-      const base = filePath.split(/[/\\]/).pop() || "data.json";
-      const latest = join(dirname(filePath), "backups", `${base}.latest`);
-      if (existsSync(latest)) {
-        return JSON.parse(readFileSync(latest, "utf8")) as T;
-      }
-      return null;
-    }
-    return JSON.parse(readFileSync(filePath, "utf8")) as T;
+    return JSON.parse(raw) as T;
   } catch {
+    return null;
+  }
+}
+
+/** Read primary file, then .bak, then backups/*.latest, then newest timestamped backup */
+export function readJsonFile<T>(filePath: string): T | null {
+  const candidates: string[] = [];
+  if (existsSync(filePath)) candidates.push(filePath);
+  if (existsSync(`${filePath}.bak`)) candidates.push(`${filePath}.bak`);
+
+  const base = basename(filePath);
+  const snapDir = join(dirname(filePath), "backups");
+  if (existsSync(snapDir)) {
+    const latest = join(snapDir, `${base}.latest`);
+    if (existsSync(latest)) candidates.push(latest);
     try {
-      if (existsSync(`${filePath}.bak`)) {
-        return JSON.parse(readFileSync(`${filePath}.bak`, "utf8")) as T;
+      const stamped = readdirSync(snapDir)
+        .filter((f) => f.startsWith(`${base}.`) && f !== `${base}.latest`)
+        .sort()
+        .reverse();
+      for (const f of stamped.slice(0, 5)) {
+        candidates.push(join(snapDir, f));
       }
     } catch {
       /* ignore */
     }
-    return null;
   }
+
+  for (const p of candidates) {
+    try {
+      const parsed = tryParseJson<T>(readFileSync(p, "utf8"));
+      if (parsed != null) {
+        // If we recovered from a backup, re-materialize primary file
+        if (p !== filePath) {
+          try {
+            writeAtomic(filePath, JSON.stringify(parsed, null, 2));
+            console.warn(`[persist] Restored ${base} from backup: ${p}`);
+          } catch {
+            /* still return parsed */
+          }
+        }
+        return parsed;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
 }

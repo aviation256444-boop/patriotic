@@ -42,11 +42,19 @@ function verifyPassword(password: string, stored: string): boolean {
 
 function ensureDb(): UsersDb {
   ensureDir(DATA_DIR);
+  // readJsonFile already tries .bak + data/backups/* before giving up
   const parsed = readJsonFile<UsersDb>(USERS_FILE);
   if (parsed?.users && Array.isArray(parsed.users) && parsed.users.length > 0) {
+    // Never replace a real database with seed — only ensure file is on disk
+    try {
+      writeWithBackup(USERS_FILE, JSON.stringify(parsed, null, 2));
+    } catch {
+      /* already durable */
+    }
     return parsed;
   }
-  // First boot only — bootstrap admins (not shown on login screen)
+  // Truly empty first boot only — create bootstrap admins (does NOT run if backup restored)
+  console.warn("[users] No users found — creating bootstrap admin accounts only");
   const seed = seedBootstrapUsers();
   saveDb(seed);
   return seed;
@@ -195,6 +203,11 @@ export function ensureUserRecord(input: {
 
 export function exportUsersDb(): UsersDb {
   return ensureDb();
+}
+
+/** Full rows including password hashes — super-admin backup only */
+export function exportUsersWithSecrets(): StoredUser[] {
+  return ensureDb().users.map((u) => ({ ...u }));
 }
 
 export function importUsersDb(data: unknown, merge = true): number {

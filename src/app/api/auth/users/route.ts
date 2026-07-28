@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createUserByAdmin,
+  exportUsersWithSecrets,
   isValidRole,
   listUsersWithMeta,
   requireSuperAdminAny,
@@ -25,6 +26,7 @@ function actorFromRequest(request: Request, body?: Record<string, unknown>) {
 /**
  * GET /api/auth/users?actorId=...
  * Super admin only — list all login accounts from data/users.json
+ * ?full=1 includes password hashes for browser snapshot restore after redeploy
  */
 export async function GET(request: Request) {
   try {
@@ -46,6 +48,14 @@ export async function GET(request: Request) {
     }
 
     requireSuperAdminAny(actorId, actorEmail);
+    const full = searchParams.get("full") === "1";
+    if (full) {
+      const users = exportUsersWithSecrets();
+      return NextResponse.json(
+        { success: true, users, count: users.length, full: true },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
     const users = listUsersWithMeta();
     return NextResponse.json(
       { success: true, users, count: users.length },

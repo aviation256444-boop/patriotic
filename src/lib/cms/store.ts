@@ -8,25 +8,55 @@ const DB_PATH = path.join(DATA_DIR, "cms-db.json");
 
 let writeLock: Promise<void> = Promise.resolve();
 
-async function ensureDb(): Promise<CmsDatabase> {
+async function tryReadCmsFile(filePath: string): Promise<CmsDatabase | null> {
   try {
-    await fs.access(DB_PATH);
-    const raw = await fs.readFile(DB_PATH, "utf-8");
+    const raw = await fs.readFile(filePath, "utf-8");
     const db = JSON.parse(raw) as CmsDatabase;
+    if (!db || typeof db !== "object") return null;
+    return db;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureDb(): Promise<CmsDatabase> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+
+  // Prefer live file, then backups — NEVER invent seed over real content
+  const candidates = [
+    DB_PATH,
+    `${DB_PATH}.bak`,
+    path.join(DATA_DIR, "backups", "cms-db.json.latest"),
+  ];
+  let db: CmsDatabase | null = null;
+  for (const p of candidates) {
+    db = await tryReadCmsFile(p);
+    if (db) {
+      if (p !== DB_PATH) {
+        console.warn(`[cms] Restored cms-db.json from ${p}`);
+        await writeAtomic(DB_PATH, JSON.stringify(db, null, 2));
+      }
+      break;
+    }
+  }
+
+  if (db) {
     const seed = createSeedDatabase();
-    // Merge only missing site keys — never wipe existing content collections
+    // Only fill missing site keys — never wipe collections / events / logos
     db.site = { ...seed.site, ...db.site };
     if (!Array.isArray(db.leaders)) db.leaders = seed.leaders;
     if (!Array.isArray(db.media)) {
       (db as CmsDatabase & { media?: unknown[] }).media = [];
     }
+    if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
     return db;
-  } catch {
-    const seed = createSeedDatabase();
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await writeAtomic(DB_PATH, JSON.stringify(seed, null, 2));
-    return seed;
   }
+
+  // Truly first boot — seed once only
+  console.warn("[cms] No cms-db found — seeding once (will not overwrite later)");
+  const seed = createSeedDatabase();
+  await writeAtomic(DB_PATH, JSON.stringify(seed, null, 2));
+  return seed;
 }
 
 /** Windows-safe atomic write (rename over existing file can fail on Win) */
@@ -45,7 +75,18 @@ async function writeAtomic(filePath: string, content: string): Promise<void> {
 
 async function persist(db: CmsDatabase): Promise<void> {
   db.updatedAt = new Date().toISOString();
-  await writeAtomic(DB_PATH, JSON.stringify(db, null, 2));
+  const json = JSON.stringify(db, null, 2);
+  // Primary
+  await writeAtomic(DB_PATH, json);
+  // Backup copies so a bad write / partial redeploy can recover
+  try {
+    await writeAtomic(`${DB_PATH}.bak`, json);
+    const snapDir = path.join(DATA_DIR, "backups");
+    await fs.mkdir(snapDir, { recursive: true });
+    await writeAtomic(path.join(snapDir, "cms-db.json.latest"), json);
+  } catch (e) {
+    console.warn("[cms] backup write failed", e);
+  }
 }
 
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
