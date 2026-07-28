@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandLogo } from "@/components/shared/brand-logo";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
 import { OAuthPanel } from "@/components/auth/oauth-panel";
 import { useAuthStore } from "@/store/auth-store";
 import type { User } from "@/types";
@@ -21,7 +22,7 @@ export default function RegisterPage() {
     password: "",
     confirm: "",
   });
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [moreOptions, setMoreOptions] = useState(false);
 
   const handleOAuthSuccess = (user: User) => {
     setUser(user);
@@ -51,9 +52,7 @@ export default function RegisterPage() {
     }
     try {
       await register(form.email.trim(), form.password, form.fullName.trim());
-      toast.success("Account created!", {
-        description: "You can sign in anytime with this email and password.",
-      });
+      toast.success("Account created!");
       router.push("/dashboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Registration failed");
@@ -71,14 +70,14 @@ export default function RegisterPage() {
           <div className="inline-flex justify-center mb-6">
             <BrandLogo href="/" size="lg" showText={false} />
           </div>
-          <h1 className="text-2xl font-bold">Create Account</h1>
+          <h1 className="text-2xl font-bold">Join PYU</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Join with your email — no password required
+            One tap with Google — pick your Gmail and you&apos;re in
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-5">
-          <OAuthPanel mode="register" onSuccess={handleOAuthSuccess} />
+        <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-6">
+          <GoogleSignInButton mode="register" nextPath="/dashboard" size="lg" />
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -88,50 +87,58 @@ export default function RegisterPage() {
               <button
                 type="button"
                 className="bg-card px-3 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowPasswordForm((v) => !v)}
+                onClick={() => setMoreOptions((v) => !v)}
               >
-                {showPasswordForm
-                  ? "Hide password registration"
-                  : "Register with password instead"}
+                {moreOptions ? "Hide other options" : "Other ways to join"}
               </button>
             </div>
           </div>
 
-          {showPasswordForm && (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                label="Full Name"
-                required
-                value={form.fullName}
-                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-              />
-              <Input
-                label="Email"
-                type="email"
-                required
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-              <Input
-                label="Password"
-                type="password"
-                required
-                minLength={6}
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="Min. 6 characters"
-              />
-              <Input
-                label="Confirm Password"
-                type="password"
-                required
-                value={form.confirm}
-                onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              />
-              <Button type="submit" className="w-full" size="lg" loading={loading}>
-                Create Account
-              </Button>
-            </form>
+          {moreOptions && (
+            <div className="space-y-5">
+              <OAuthPanel mode="register" onSuccess={handleOAuthSuccess} />
+
+              <form
+                onSubmit={handleSubmit}
+                className="space-y-4 border-t border-border pt-4"
+              >
+                <p className="text-xs font-medium text-muted-foreground">
+                  Or register with password
+                </p>
+                <Input
+                  label="Full Name"
+                  required
+                  value={form.fullName}
+                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  required
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+                <Input
+                  label="Password"
+                  type="password"
+                  required
+                  minLength={6}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="Min. 6 characters"
+                />
+                <Input
+                  label="Confirm Password"
+                  type="password"
+                  required
+                  value={form.confirm}
+                  onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+                />
+                <Button type="submit" className="w-full" loading={loading}>
+                  Create Account
+                </Button>
+              </form>
+            </div>
           )}
 
           <p className="text-center text-sm text-muted-foreground">

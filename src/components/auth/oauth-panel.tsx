@@ -1,26 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Mail, KeyRound, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Mail, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import type { User } from "@/types";
 import { cn } from "@/lib/utils";
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (cfg: Record<string, unknown>) => void;
-          renderButton: (el: HTMLElement, cfg: Record<string, unknown>) => void;
-          prompt: () => void;
-        };
-      };
-    };
-  }
-}
 
 type Props = {
   mode?: "login" | "register";
@@ -28,6 +14,7 @@ type Props = {
   className?: string;
 };
 
+/** Email OTP sign-in / auto-register (passwordless). Google is a separate button. */
 export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -35,86 +22,13 @@ export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
   const [step, setStep] = useState<"email" | "code">("email");
   const [busy, setBusy] = useState(false);
   const [devCode, setDevCode] = useState<string | null>(null);
-  const [googleReady, setGoogleReady] = useState(false);
-  const [googleEnabled, setGoogleEnabled] = useState(false);
-  const googleBtnRef = useRef<HTMLDivElement>(null);
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
-  const finish = useCallback(
-    (user: User) => {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("pyu_user", JSON.stringify(user));
-      }
-      onSuccess(user);
-    },
-    [onSuccess]
-  );
-
-  // Detect Google config from API
-  useEffect(() => {
-    fetch("/api/auth/oauth/google", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setGoogleEnabled(Boolean(d.enabled)))
-      .catch(() => setGoogleEnabled(Boolean(clientId)));
-  }, [clientId]);
-
-  // Load Google Identity Services
-  useEffect(() => {
-    if (!googleEnabled && !clientId) return;
-    const id = clientId || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    if (!id) return;
-
-    const handleCredential = async (response: { credential: string }) => {
-      setBusy(true);
-      try {
-        const res = await fetch("/api/auth/oauth/google", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ credential: response.credential }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Google sign-in failed");
-        toast.success("Signed in with Google");
-        finish(data.user as User);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Google sign-in failed");
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    const boot = () => {
-      if (!window.google?.accounts?.id || !googleBtnRef.current) return;
-      window.google.accounts.id.initialize({
-        client_id: id,
-        callback: handleCredential,
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
-      googleBtnRef.current.innerHTML = "";
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: "outline",
-        size: "large",
-        width: 320,
-        text: mode === "register" ? "signup_with" : "continue_with",
-        shape: "pill",
-      });
-      setGoogleReady(true);
-    };
-
-    const existing = document.getElementById("google-gis");
-    if (existing) {
-      boot();
-      return;
+  const finish = (user: User) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("pyu_user", JSON.stringify(user));
     }
-    const script = document.createElement("script");
-    script.id = "google-gis";
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => boot();
-    document.head.appendChild(script);
-  }, [googleEnabled, clientId, mode, finish]);
+    onSuccess(user);
+  };
 
   const requestCode = async () => {
     if (!email.trim() || !email.includes("@")) {
@@ -182,9 +96,9 @@ export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
 
   return (
     <div className={cn("space-y-4", className)}>
-      <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3 text-xs text-muted-foreground">
-        <strong className="text-foreground">Continue with email</strong> — enter your
-        email, get a one-time code. New emails are registered automatically as members.
+      <div className="rounded-xl border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground">
+        <strong className="text-foreground">Continue with email code</strong> —
+        new emails are registered automatically.
       </div>
 
       {step === "email" ? (
@@ -213,19 +127,19 @@ export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
           </div>
           <Button
             type="button"
-            className="w-full bg-emerald-600 hover:bg-emerald-500"
-            size="lg"
+            className="w-full"
+            variant="outline"
             loading={busy}
             onClick={() => void requestCode()}
           >
             <Mail className="h-4 w-4" />
-            Continue with email
+            Continue with email code
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Code sent to <strong className="text-foreground">{email}</strong>
+            Code for <strong className="text-foreground">{email}</strong>
             {devCode && (
               <span className="block mt-1 font-mono text-emerald-600">
                 Dev code: {devCode}
@@ -250,7 +164,6 @@ export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
           <Button
             type="button"
             className="w-full"
-            size="lg"
             loading={busy}
             onClick={() => void verifyCode()}
           >
@@ -268,30 +181,6 @@ export function OAuthPanel({ mode = "login", onSuccess, className }: Props) {
             Use a different email
           </button>
         </div>
-      )}
-
-      {(googleEnabled || clientId) && (
-        <>
-          <div className="relative my-2">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-3 text-muted-foreground">or Google</span>
-            </div>
-          </div>
-          <div className="flex flex-col items-center gap-2 min-h-[44px]">
-            {!googleReady && busy && (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            )}
-            <div ref={googleBtnRef} className="flex justify-center w-full" />
-            {!clientId && googleEnabled === false && (
-              <p className="text-[11px] text-muted-foreground text-center">
-                Set NEXT_PUBLIC_GOOGLE_CLIENT_ID to enable Google button
-              </p>
-            )}
-          </div>
-        </>
       )}
     </div>
   );
