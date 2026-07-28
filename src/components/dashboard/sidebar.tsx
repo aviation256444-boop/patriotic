@@ -33,6 +33,7 @@ import {
   X,
   Home,
   KeyRound,
+  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -60,7 +61,9 @@ export const memberNav: NavItem[] = [
 export const adminNav: NavItem[] = [
   { href: "/admin", label: "Analytics", icon: BarChart3 },
   { href: "/admin/members", label: "Members", icon: Users },
+  { href: "/admin/verify", label: "Verify membership", icon: Shield },
   { href: "/admin/events", label: "Events", icon: Calendar },
+  { href: "/admin/payments", label: "Event payments", icon: CreditCard },
   { href: "/admin/news", label: "News", icon: Newspaper },
   { href: "/admin/gallery", label: "Gallery", icon: Image },
   { href: "/admin/projects", label: "Projects", icon: FolderKanban },
@@ -76,12 +79,14 @@ export const superAdminNav: NavItem[] = [
   { href: "/super-admin", label: "CMS Overview", icon: Shield },
   { href: "/super-admin/users", label: "User accounts", icon: Users },
   { href: "/super-admin/account", label: "My credentials", icon: KeyRound },
+  { href: "/super-admin/verify", label: "Verify membership", icon: UserCheck },
   { href: "/super-admin/admins", label: "Manage Admins", icon: Lock },
   { href: "/super-admin/content", label: "Website Content", icon: FileText },
   { href: "/super-admin/stats", label: "Statistics", icon: BarChart3 },
   { href: "/super-admin/programs", label: "Programs", icon: Trophy },
   { href: "/super-admin/projects", label: "Projects", icon: FolderKanban },
-  { href: "/super-admin/events", label: "Events", icon: Calendar },
+  { href: "/super-admin/events", label: "Events (pricing)", icon: Calendar },
+  { href: "/super-admin/payments", label: "Event payments", icon: CreditCard },
   { href: "/super-admin/news", label: "News & Blog", icon: Newspaper },
   { href: "/super-admin/gallery", label: "Gallery", icon: Image },
   { href: "/super-admin/opportunities", label: "Opportunities", icon: Award },
