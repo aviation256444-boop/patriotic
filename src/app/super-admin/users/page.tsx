@@ -44,23 +44,29 @@ function roleBadge(role: string) {
   return "bg-muted text-foreground";
 }
 
+const emptyForm = {
+  fullName: "",
+  email: "",
+  phone: "",
+  role: "member" as UserRole,
+  membershipStatus: "active" as MembershipStatus,
+  membershipNumber: "",
+  district: "",
+  password: "",
+};
+
 export default function SuperAdminUsersPage() {
   const { user: actor, setUser, updateUser } = useAuthStore();
   const [users, setUsers] = useState<AccountUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState<AccountUser | null>(null);
+  /** null = closed, "create" = new user, AccountUser = edit */
+  const [modal, setModal] = useState<"create" | AccountUser | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    fullName: "",
-    email: "",
-    phone: "",
-    role: "member" as UserRole,
-    membershipStatus: "active" as MembershipStatus,
-    membershipNumber: "",
-    district: "",
-    password: "",
-  });
+  const [form, setForm] = useState(emptyForm);
+
+  const isCreate = modal === "create";
+  const editing = modal && modal !== "create" ? modal : null;
 
   const load = useCallback(async () => {
     if (!actor?.id) return;
@@ -96,8 +102,12 @@ export default function SuperAdminUsersPage() {
     );
   }, [users, q]);
 
+  const openCreate = () => {
+    setForm({ ...emptyForm, password: "", membershipStatus: "active", role: "member" });
+    setModal("create");
+  };
+
   const openEdit = (u: AccountUser) => {
-    setEditing(u);
     setForm({
       fullName: u.fullName || "",
       email: u.email || "",
@@ -108,12 +118,49 @@ export default function SuperAdminUsersPage() {
       district: u.district || "",
       password: "",
     });
+    setModal(u);
   };
 
+  const closeModal = () => setModal(null);
+
   const save = async () => {
-    if (!actor?.id || !editing) return;
+    if (!actor?.id || !modal) return;
+
+    if (isCreate && !form.password.trim()) {
+      toast.error("Password is required for new users");
+      return;
+    }
+    if (!form.fullName.trim() || !form.email.trim()) {
+      toast.error("Name and email are required");
+      return;
+    }
+
     setSaving(true);
     try {
+      if (isCreate) {
+        const res = await fetch("/api/auth/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            actorId: actor.id,
+            fullName: form.fullName.trim(),
+            email: form.email.trim(),
+            password: form.password.trim(),
+            phone: form.phone,
+            role: form.role,
+            membershipStatus: form.membershipStatus,
+            membershipNumber: form.membershipNumber,
+            district: form.district,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not create user");
+        toast.success("User account created — they can sign in now");
+        closeModal();
+        await load();
+        return;
+      }
+
       const body: Record<string, unknown> = {
         actorId: actor.id,
         fullName: form.fullName,
@@ -126,7 +173,7 @@ export default function SuperAdminUsersPage() {
       };
       if (form.password.trim()) body.password = form.password.trim();
 
-      const res = await fetch(`/api/auth/users/${editing.id}`, {
+      const res = await fetch(`/api/auth/users/${editing!.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -140,8 +187,7 @@ export default function SuperAdminUsersPage() {
           : "User credentials updated"
       );
 
-      // If super admin edited themselves, refresh session
-      if (editing.id === actor.id && data.user) {
+      if (editing!.id === actor.id && data.user) {
         setUser(data.user);
         updateUser(data.user);
         if (typeof window !== "undefined") {
@@ -149,7 +195,7 @@ export default function SuperAdminUsersPage() {
         }
       }
 
-      setEditing(null);
+      closeModal();
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
@@ -191,13 +237,22 @@ export default function SuperAdminUsersPage() {
             User accounts
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Login details are stored in the database (<code className="text-xs bg-muted px-1 rounded">data/users.json</code>
-            ). Edit credentials, reset passwords, or promote members to Super Admin.
+            Login details are stored in the database (
+            <code className="text-xs bg-muted px-1 rounded">data/users.json</code>
+            ). Add users, edit credentials, reset passwords, or promote to Super Admin.
           </p>
         </div>
-        <Button variant="outline" onClick={() => void load()} loading={loading}>
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="bg-red-600 hover:bg-red-500 text-white"
+            onClick={openCreate}
+          >
+            <UserPlus className="h-4 w-4" /> Add new user
+          </Button>
+          <Button variant="outline" onClick={() => void load()} loading={loading}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border/50 bg-card p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -304,23 +359,34 @@ export default function SuperAdminUsersPage() {
         </div>
       </div>
 
-      {editing && (
+      {modal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold flex items-center gap-2">
-                  <KeyRound className="h-5 w-5 text-red-600" />
-                  Edit credentials
+                  {isCreate ? (
+                    <>
+                      <UserPlus className="h-5 w-5 text-red-600" />
+                      Add new user
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="h-5 w-5 text-red-600" />
+                      Edit credentials
+                    </>
+                  )}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Changes are saved to the user database and used on next login.
+                  {isCreate
+                    ? "Creates a login account in the database. They can sign in immediately."
+                    : "Changes are saved to the user database and used on next login."}
                 </p>
               </div>
               <button
                 type="button"
                 className="text-muted-foreground hover:text-foreground text-sm"
-                onClick={() => setEditing(null)}
+                onClick={closeModal}
               >
                 Close
               </button>
@@ -330,12 +396,14 @@ export default function SuperAdminUsersPage() {
               label="Full name"
               value={form.fullName}
               onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+              required
             />
             <Input
               label="Email (login)"
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
+              required
             />
             <Input
               label="Phone"
@@ -394,24 +462,39 @@ export default function SuperAdminUsersPage() {
               onChange={(e) => setForm({ ...form, district: e.target.value })}
             />
 
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+            <div
+              className={cn(
+                "rounded-xl border p-3 space-y-2",
+                isCreate
+                  ? "border-red-500/30 bg-red-500/5"
+                  : "border-amber-500/30 bg-amber-500/10"
+              )}
+            >
               <p className="text-sm font-semibold flex items-center gap-2">
-                <UserPlus className="h-4 w-4" /> Reset password (optional)
+                <KeyRound className="h-4 w-4" />
+                {isCreate ? "Login password (required)" : "Reset password (optional)"}
               </p>
               <Input
-                label="New password"
+                label={isCreate ? "Password" : "New password"}
                 type="password"
-                placeholder="Leave blank to keep current password"
+                placeholder={
+                  isCreate
+                    ? "Min 6 characters"
+                    : "Leave blank to keep current password"
+                }
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
+                required={isCreate}
               />
               <p className="text-[11px] text-muted-foreground">
-                Minimum 6 characters. User will sign in with this password next time.
+                {isCreate
+                  ? "Share this email and password with the user so they can sign in."
+                  : "Minimum 6 characters. User will sign in with this password next time."}
               </p>
             </div>
 
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="ghost" onClick={() => setEditing(null)}>
+              <Button variant="ghost" onClick={closeModal}>
                 Cancel
               </Button>
               <Button
@@ -419,7 +502,7 @@ export default function SuperAdminUsersPage() {
                 loading={saving}
                 onClick={() => void save()}
               >
-                Save changes
+                {isCreate ? "Create user" : "Save changes"}
               </Button>
             </div>
           </div>

@@ -357,9 +357,57 @@ export function registerLocalUser(input: {
   password: string;
   fullName: string;
 }): User {
+  return createUserAccount({
+    email: input.email,
+    password: input.password,
+    fullName: input.fullName,
+    role: "member",
+    membershipStatus: "pending",
+  });
+}
+
+/**
+ * Super admin creates a full login account (stored in data/users.json).
+ */
+export function createUserByAdmin(input: {
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  role?: UserRole;
+  membershipStatus?: User["membershipStatus"];
+  membershipNumber?: string;
+  district?: string;
+  occupation?: string;
+}): User {
+  return createUserAccount({
+    email: input.email,
+    password: input.password,
+    fullName: input.fullName,
+    phone: input.phone,
+    role: input.role || "member",
+    membershipStatus: input.membershipStatus || "active",
+    membershipNumber: input.membershipNumber,
+    district: input.district,
+    occupation: input.occupation,
+  });
+}
+
+function createUserAccount(input: {
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  role?: UserRole;
+  membershipStatus?: User["membershipStatus"];
+  membershipNumber?: string;
+  district?: string;
+  occupation?: string;
+}): User {
   const email = input.email.toLowerCase().trim();
   const fullName = input.fullName.trim();
   const password = input.password;
+  const role = input.role || "member";
 
   if (!email || !email.includes("@")) {
     throw new Error("Enter a valid email address");
@@ -370,6 +418,9 @@ export function registerLocalUser(input: {
   if (!password || password.length < 6) {
     throw new Error("Password must be at least 6 characters");
   }
+  if (!isValidRole(role)) {
+    throw new Error("Invalid role");
+  }
 
   const db = ensureDb();
   if (db.users.some((u) => u.email === email)) {
@@ -377,18 +428,23 @@ export function registerLocalUser(input: {
   }
 
   const now = new Date().toISOString();
+  const isElevated = role !== "member" && role !== "volunteer";
   const user: StoredUser = {
     id: randomUUID(),
     email,
     fullName,
-    role: "member",
-    membershipStatus: "pending",
+    phone: input.phone?.trim() || undefined,
+    role,
+    membershipStatus: input.membershipStatus || "pending",
+    membershipNumber: input.membershipNumber?.trim() || undefined,
+    district: input.district?.trim() || undefined,
+    occupation: input.occupation?.trim() || undefined,
     passwordHash: hashPassword(password),
     volunteerHours: 0,
-    badges: ["new-member"],
+    badges: isElevated ? ["leader"] : ["new-member"],
     createdAt: now,
     updatedAt: now,
-    twoFactorEnabled: false,
+    twoFactorEnabled: isElevated,
   };
 
   db.users.push(user);
