@@ -7,6 +7,7 @@ import {
   seatsSoldForEvent,
 } from "@/lib/tickets/store";
 import type { Event } from "@/types";
+import type { CmsDonation } from "@/lib/cms/types";
 
 export const dynamic = "force-dynamic";
 
