@@ -69,13 +69,33 @@ export default function SuperAdminUsersPage() {
   const editing = modal && modal !== "create" ? modal : null;
 
   const load = useCallback(async () => {
-    if (!actor?.id) return;
+    if (!actor?.id && !actor?.email) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/auth/users?actorId=${encodeURIComponent(actor.id)}`,
-        { cache: "no-store" }
-      );
+      // Re-bind current session into DB first (fixes “logged in but missing from list”)
+      if (actor.email) {
+        await fetch("/api/auth/ensure", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: actor.id,
+            email: actor.email,
+            fullName: actor.fullName,
+            phone: actor.phone,
+            photoURL: actor.photoURL,
+            role: actor.role,
+            membershipStatus: actor.membershipStatus,
+          }),
+          cache: "no-store",
+        }).catch(() => undefined);
+      }
+
+      const qs = new URLSearchParams();
+      if (actor.id) qs.set("actorId", actor.id);
+      if (actor.email) qs.set("actorEmail", actor.email);
+      const res = await fetch(`/api/auth/users?${qs.toString()}`, {
+        cache: "no-store",
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load users");
       setUsers(data.users || []);
@@ -84,7 +104,7 @@ export default function SuperAdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [actor?.id]);
+  }, [actor]);
 
   useEffect(() => {
     void load();
@@ -143,6 +163,7 @@ export default function SuperAdminUsersPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             actorId: actor.id,
+            actorEmail: actor.email,
             fullName: form.fullName.trim(),
             email: form.email.trim(),
             password: form.password.trim(),
@@ -163,6 +184,7 @@ export default function SuperAdminUsersPage() {
 
       const body: Record<string, unknown> = {
         actorId: actor.id,
+        actorEmail: actor.email,
         fullName: form.fullName,
         email: form.email,
         phone: form.phone,
@@ -217,7 +239,11 @@ export default function SuperAdminUsersPage() {
       const res = await fetch(`/api/auth/users/${u.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actorId: actor.id, role: "super_admin" }),
+        body: JSON.stringify({
+          actorId: actor.id,
+          actorEmail: actor.email,
+          role: "super_admin",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Promotion failed");
@@ -237,9 +263,10 @@ export default function SuperAdminUsersPage() {
             User accounts
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Login details are stored in the database (
-            <code className="text-xs bg-muted px-1 rounded">data/users.json</code>
-            ). Add users, edit credentials, reset passwords, or promote to Super Admin.
+            Every account that signs in is saved permanently in{" "}
+            <code className="text-xs bg-muted px-1 rounded">data/users.json</code>{" "}
+            (with automatic .bak backups). Nothing is removed unless you delete it.
+            Refresh if someone just registered or signed in.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

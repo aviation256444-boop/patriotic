@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   findUserById,
-  requireSuperAdmin,
+  requireSuperAdminAny,
   setUserPassword,
   updateUserByAdmin,
   isValidRole,
@@ -32,7 +32,7 @@ export async function GET(request: Request, ctx: Ctx) {
   try {
     const { id } = await ctx.params;
     const actorId = actorFrom(request);
-    requireSuperAdmin(actorId);
+    requireSuperAdminAny(actorId);
     const user = findUserById(id);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -60,7 +60,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (!actorId) {
       return NextResponse.json({ error: "Actor identity required" }, { status: 401 });
     }
-    requireSuperAdmin(actorId);
+    requireSuperAdminAny(actorId, body.actorEmail as string);
 
     if (body.role !== undefined && !isValidRole(String(body.role))) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });

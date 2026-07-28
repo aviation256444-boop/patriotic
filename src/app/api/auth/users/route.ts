@@ -3,7 +3,7 @@ import {
   createUserByAdmin,
   isValidRole,
   listUsersWithMeta,
-  requireSuperAdmin,
+  requireSuperAdminAny,
 } from "@/lib/auth/local-users";
 import type { MembershipStatus, UserRole } from "@/types";
 
@@ -28,16 +28,24 @@ function actorFromRequest(request: Request, body?: Record<string, unknown>) {
  */
 export async function GET(request: Request) {
   try {
-    const actorId = actorFromRequest(request);
+    const { searchParams } = new URL(request.url);
+    const actorId =
+      searchParams.get("actorId") ||
+      request.headers.get("x-actor-id") ||
+      "";
+    const actorEmail =
+      searchParams.get("actorEmail") ||
+      request.headers.get("x-actor-email") ||
+      "";
 
-    if (!actorId) {
+    if (!actorId && !actorEmail) {
       return NextResponse.json(
-        { error: "Actor identity required (actorId)" },
+        { error: "Actor identity required (actorId or actorEmail)" },
         { status: 401 }
       );
     }
 
-    requireSuperAdmin(actorId);
+    requireSuperAdminAny(actorId, actorEmail);
     const users = listUsersWithMeta();
     return NextResponse.json(
       { success: true, users, count: users.length },
@@ -59,10 +67,11 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const actorId = actorFromRequest(request, body);
-    if (!actorId) {
+    const actorEmail = String(body.actorEmail || "");
+    if (!actorId && !actorEmail) {
       return NextResponse.json({ error: "Actor identity required" }, { status: 401 });
     }
-    requireSuperAdmin(actorId);
+    requireSuperAdminAny(actorId, actorEmail);
 
     const role = body.role !== undefined ? String(body.role) : "member";
     if (!isValidRole(role)) {

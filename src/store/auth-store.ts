@@ -5,6 +5,37 @@ import { persist } from "zustand/middleware";
 import type { User } from "@/types";
 import * as authService from "@/lib/firebase/auth";
 
+/** Persist every login into data/users.json so Super Admin always sees accounts */
+async function syncUserToServer(user: User): Promise<User> {
+  try {
+    const res = await fetch("/api/auth/ensure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        photoURL: user.photoURL,
+        role: user.role,
+        membershipStatus: user.membershipStatus,
+      }),
+      cache: "no-store",
+    });
+    if (!res.ok) return user;
+    const data = await res.json();
+    if (data.user) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("pyu_user", JSON.stringify(data.user));
+      }
+      return data.user as User;
+    }
+  } catch {
+    /* keep session user */
+  }
+  return user;
+}
+
 interface AuthState {
   user: User | null;
   loading: boolean;
@@ -34,8 +65,9 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const user = await authService.signInWithEmail(email, password);
-          set({ user, loading: false });
-          return user;
+          const synced = await syncUserToServer(user);
+          set({ user: synced, loading: false });
+          return synced;
         } catch (e) {
           set({ loading: false });
           throw e;
@@ -45,8 +77,9 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const user = await authService.signUpWithEmail(email, password, fullName);
-          set({ user, loading: false });
-          return user;
+          const synced = await syncUserToServer(user);
+          set({ user: synced, loading: false });
+          return synced;
         } catch (e) {
           set({ loading: false });
           throw e;
@@ -56,8 +89,9 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const user = await authService.signInWithGoogle();
-          set({ user, loading: false });
-          return user;
+          const synced = await syncUserToServer(user);
+          set({ user: synced, loading: false });
+          return synced;
         } catch (e) {
           set({ loading: false });
           throw e;
@@ -67,8 +101,9 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const user = await authService.signInWithFacebook();
-          set({ user, loading: false });
-          return user;
+          const synced = await syncUserToServer(user);
+          set({ user: synced, loading: false });
+          return synced;
         } catch (e) {
           set({ loading: false });
           throw e;
@@ -78,8 +113,9 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const user = await authService.signInWithApple();
-          set({ user, loading: false });
-          return user;
+          const synced = await syncUserToServer(user);
+          set({ user: synced, loading: false });
+          return synced;
         } catch (e) {
           set({ loading: false });
           throw e;
@@ -103,11 +139,16 @@ export const useAuthStore = create<AuthState>()(
         const current = get().user;
         if (!current?.id && !current?.email) return null;
         try {
+          // Re-bind session into server DB (survives forgotten accounts)
+          if (current.email) {
+            const synced = await syncUserToServer(current);
+            set({ user: synced });
+          }
           const q = current.id
             ? `userId=${encodeURIComponent(current.id)}`
             : `email=${encodeURIComponent(current.email)}`;
           const res = await fetch(`/api/auth/me?${q}`, { cache: "no-store" });
-          if (!res.ok) return current;
+          if (!res.ok) return get().user;
           const data = await res.json();
           if (data.user) {
             set({ user: data.user });

@@ -283,7 +283,23 @@ function pushAudit(
     itemId,
     createdAt: new Date().toISOString(),
   };
-  db.auditLogs = [log, ...(db.auditLogs || [])].slice(0, 500);
+  // Keep long history — never drop past activity casually
+  db.auditLogs = [log, ...(db.auditLogs || [])].slice(0, 5000);
+  // Mirror into durable activity log (separate file, survives CMS resets better)
+  try {
+    // lazy require to avoid circular init issues
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logActivity } = require("@/lib/activity/log") as typeof import("@/lib/activity/log");
+    logActivity({
+      kind: "cms",
+      action,
+      actor: user,
+      target: itemId || collection,
+      meta: { collection },
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function exportDatabase(): Promise<string> {

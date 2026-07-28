@@ -144,13 +144,6 @@ function LoginForm() {
               Register
             </Link>
           </p>
-
-          <div className="mt-4 rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">
-            <p className="font-semibold mb-1">Demo accounts:</p>
-            <p>member@pyu.ug / demo1234</p>
-            <p>admin@pyu.ug / admin1234</p>
-            <p>superadmin@pyu.ug / super1234</p>
-          </div>
         </div>
       </motion.div>
     </div>

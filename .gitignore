@@ -38,8 +38,16 @@ next-env.d.ts
 # cms runtime data (seed regenerates if missing)
 /data/cms-db.json
 /data/cms-db.json.tmp
+# users + activity kept on disk with .bak — still gitignored (contain secrets/hashes)
+# Download full backup from Super Admin regularly for free-host redeploys
 /data/users.json
+/data/users.json.bak
 /data/users.json.*
+/data/activity-log.json
+/data/activity-log.json.bak
+/data/tickets.json
+/data/tickets.json.bak
+/data/backups/
 /data/*.tmp
 
 # uploaded images (keep folder)

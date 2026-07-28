@@ -1,13 +1,18 @@
 /**
- * File-backed user registry for registration / login when Firebase is not configured
- * (NEXT_PUBLIC_DEMO_MODE or missing Firebase keys).
- * Stored at data/users.json — works on a single Render instance (+ optional disk).
+ * File-backed user registry.
+ * Stored at data/users.json with .bak + data/backups restore copies.
+ * Accounts and history are never wiped unless an admin explicitly resets.
  */
 
 import { createHash, randomUUID, scryptSync, timingSafeEqual } from "crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { User, UserRole } from "@/types";
+import {
+  ensureDir,
+  readJsonFile,
+  writeWithBackup,
+} from "@/lib/persist/atomic-file";
+import { logActivity } from "@/lib/activity/log";
 
 export type StoredUser = User & {
   passwordHash: string;
@@ -36,44 +41,20 @@ function verifyPassword(password: string, stored: string): boolean {
 }
 
 function ensureDb(): UsersDb {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(USERS_FILE)) {
-    const seed = seedDemoUsers();
-    writeAtomic(USERS_FILE, JSON.stringify(seed, null, 2));
-    return seed;
+  ensureDir(DATA_DIR);
+  const parsed = readJsonFile<UsersDb>(USERS_FILE);
+  if (parsed?.users && Array.isArray(parsed.users) && parsed.users.length > 0) {
+    return parsed;
   }
-  try {
-    const raw = readFileSync(USERS_FILE, "utf8");
-    const parsed = JSON.parse(raw) as UsersDb;
-    if (!parsed.users || !Array.isArray(parsed.users)) return seedDemoUsers();
-    // Ensure demo accounts always exist for admins
-    return ensureDemoAccounts(parsed);
-  } catch {
-    const seed = seedDemoUsers();
-    writeAtomic(USERS_FILE, JSON.stringify(seed, null, 2));
-    return seed;
-  }
-}
-
-function writeAtomic(path: string, content: string) {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, content, "utf8");
-  try {
-    renameSync(tmp, path);
-  } catch {
-    writeFileSync(path, content, "utf8");
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("fs").unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-  }
+  // First boot only — bootstrap admins (not shown on login screen)
+  const seed = seedBootstrapUsers();
+  saveDb(seed);
+  return seed;
 }
 
 function saveDb(db: UsersDb) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeAtomic(USERS_FILE, JSON.stringify(db, null, 2));
+  ensureDir(DATA_DIR);
+  writeWithBackup(USERS_FILE, JSON.stringify(db, null, 2));
 }
 
 function publicUser(u: StoredUser): User {
@@ -85,73 +66,162 @@ function publicUser(u: StoredUser): User {
   };
 }
 
-function seedDemoUsers(): UsersDb {
+/**
+ * First-run bootstrap only. Passwords can be overridden with env:
+ * SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD, ADMIN_EMAIL, ADMIN_PASSWORD
+ * Never displayed on the public login page.
+ */
+function seedBootstrapUsers(): UsersDb {
   const now = new Date().toISOString();
-  const demos: Array<{
-    email: string;
-    password: string;
-    fullName: string;
-    role: UserRole;
-    id: string;
-  }> = [
+  const superEmail = (
+    process.env.SUPER_ADMIN_EMAIL || "superadmin@pyu.ug"
+  ).toLowerCase();
+  const superPass = process.env.SUPER_ADMIN_PASSWORD || "super1234";
+  const adminEmail = (process.env.ADMIN_EMAIL || "admin@pyu.ug").toLowerCase();
+  const adminPass = process.env.ADMIN_PASSWORD || "admin1234";
+
+  const users: StoredUser[] = [
     {
-      id: "demo-member-1",
-      email: "member@pyu.ug",
-      password: "demo1234",
-      fullName: "Amina Nakato",
-      role: "member",
-    },
-    {
-      id: "demo-admin-1",
-      email: "admin@pyu.ug",
-      password: "admin1234",
-      fullName: "David Okello",
-      role: "admin",
-    },
-    {
-      id: "demo-super-1",
-      email: "superadmin@pyu.ug",
-      password: "super1234",
-      fullName: "Sarah Namukasa",
+      id: "bootstrap-super-1",
+      email: superEmail,
+      fullName: "Site Super Admin",
       role: "super_admin",
+      membershipStatus: "active",
+      membershipNumber: "PYU-2022-000001",
+      passwordHash: hashPassword(superPass),
+      volunteerHours: 0,
+      badges: ["leader"],
+      createdAt: now,
+      updatedAt: now,
+      twoFactorEnabled: true,
+    },
+    {
+      id: "bootstrap-admin-1",
+      email: adminEmail,
+      fullName: "Site Admin",
+      role: "admin",
+      membershipStatus: "active",
+      membershipNumber: "PYU-2023-000001",
+      passwordHash: hashPassword(adminPass),
+      volunteerHours: 0,
+      badges: ["leader"],
+      createdAt: now,
+      updatedAt: now,
+      twoFactorEnabled: true,
     },
   ];
 
-  return {
-    users: demos.map((d) => ({
-      id: d.id,
-      email: d.email.toLowerCase(),
-      fullName: d.fullName,
-      role: d.role,
-      membershipStatus: "active" as const,
-      membershipNumber:
-        d.role === "super_admin"
-          ? "PYU-2022-000001"
-          : d.role === "admin"
-            ? "PYU-2023-000001"
-            : "PYU-2024-100001",
-      passwordHash: hashPassword(d.password),
-      volunteerHours: d.role === "super_admin" ? 500 : d.role === "admin" ? 200 : 48,
-      badges: d.role === "member" ? ["first-event"] : ["leader", "patriot"],
-      createdAt: now,
-      updatedAt: now,
-      twoFactorEnabled: d.role !== "member",
-    })),
-  };
+  return { users };
 }
 
-function ensureDemoAccounts(db: UsersDb): UsersDb {
-  const seed = seedDemoUsers();
-  let changed = false;
-  for (const demo of seed.users) {
-    const exists = db.users.some((u) => u.email === demo.email);
-    if (!exists) {
-      db.users.push(demo);
-      changed = true;
+/**
+ * Ensure any signed-in identity (local or Firebase/social) is stored in
+ * data/users.json so Super Admin → Users always lists real accounts.
+ */
+export function ensureUserRecord(input: {
+  id?: string;
+  email: string;
+  fullName?: string;
+  phone?: string;
+  photoURL?: string;
+  role?: UserRole;
+  membershipStatus?: User["membershipStatus"];
+}): User {
+  const email = String(input.email || "")
+    .toLowerCase()
+    .trim();
+  if (!email || !email.includes("@")) {
+    throw new Error("Valid email required");
+  }
+
+  const db = ensureDb();
+  const byId = input.id
+    ? db.users.findIndex((u) => u.id === input.id)
+    : -1;
+  const byEmail = db.users.findIndex((u) => u.email === email);
+  const idx = byId >= 0 ? byId : byEmail;
+
+  if (idx >= 0) {
+    const cur = db.users[idx];
+    if (input.fullName?.trim()) cur.fullName = input.fullName.trim();
+    if (input.phone !== undefined) cur.phone = input.phone || undefined;
+    if (input.photoURL !== undefined) cur.photoURL = input.photoURL || undefined;
+    // Never downgrade an elevated role via ensure
+    if (
+      input.role &&
+      isValidRole(input.role) &&
+      cur.role === "member" &&
+      input.role !== "member"
+    ) {
+      cur.role = input.role;
+    }
+    cur.lastLoginAt = new Date().toISOString();
+    cur.updatedAt = cur.lastLoginAt;
+    db.users[idx] = cur;
+    saveDb(db);
+    return publicUser(cur);
+  }
+
+  const now = new Date().toISOString();
+  const role: UserRole =
+    input.role && isValidRole(input.role) ? input.role : "member";
+  const user: StoredUser = {
+    id: input.id || randomUUID(),
+    email,
+    fullName: (input.fullName || email.split("@")[0] || "Member").trim(),
+    phone: input.phone || undefined,
+    photoURL: input.photoURL || undefined,
+    role,
+    membershipStatus: input.membershipStatus || "active",
+    // Random password — Firebase/social users set a password via admin if needed
+    passwordHash: hashPassword(randomUUID() + randomUUID()),
+    volunteerHours: 0,
+    badges: role === "member" ? ["new-member"] : ["leader"],
+    createdAt: now,
+    updatedAt: now,
+    lastLoginAt: now,
+    twoFactorEnabled: role !== "member" && role !== "volunteer",
+  };
+  db.users.push(user);
+  saveDb(db);
+  logActivity({
+    kind: "register",
+    action: `Account recorded: ${user.email} (${user.role})`,
+    actor: user.email,
+    target: user.id,
+  });
+  return publicUser(user);
+}
+
+export function exportUsersDb(): UsersDb {
+  return ensureDb();
+}
+
+export function importUsersDb(data: unknown, merge = true): number {
+  const incoming = data as UsersDb;
+  if (!incoming || !Array.isArray(incoming.users)) {
+    throw new Error("Invalid users backup");
+  }
+  if (!merge) {
+    saveDb({ users: incoming.users as StoredUser[] });
+    return incoming.users.length;
+  }
+  const db = ensureDb();
+  let added = 0;
+  for (const u of incoming.users as StoredUser[]) {
+    if (!u?.email || !u?.passwordHash) continue;
+    const i = db.users.findIndex(
+      (x) => x.email === u.email.toLowerCase() || x.id === u.id
+    );
+    if (i >= 0) {
+      db.users[i] = { ...db.users[i], ...u, email: u.email.toLowerCase() };
+    } else {
+      db.users.push({ ...u, email: u.email.toLowerCase() });
+      added += 1;
     }
   }
-  if (changed) saveDb(db);
-  return db;
+  saveDb(db);
+  return added;
 }
 
 export function listUsersPublic(): User[] {
@@ -260,6 +330,12 @@ export function updateUserByAdmin(
   current.updatedAt = new Date().toISOString();
   db.users[idx] = current;
   saveDb(db);
+  logActivity({
+    kind: "user_update",
+    action: `Updated user ${current.email}`,
+    target: current.id,
+    meta: { fields: Object.keys(patch) },
+  });
   return publicUser(current);
 }
 
@@ -275,6 +351,11 @@ export function setUserPassword(userId: string, newPassword: string): User {
   db.users[idx].passwordHash = hashPassword(newPassword);
   db.users[idx].updatedAt = new Date().toISOString();
   saveDb(db);
+  logActivity({
+    kind: "user_password",
+    action: `Password changed for ${db.users[idx].email}`,
+    target: userId,
+  });
   return publicUser(db.users[idx]);
 }
 
@@ -350,6 +431,16 @@ export function requireSuperAdmin(actorEmailOrId: string): StoredUser {
     throw new Error("Super admin access required");
   }
   return actor;
+}
+
+/** Try id then email (session may use Firebase uid while DB uses local id). */
+export function requireSuperAdminAny(...ids: Array<string | null | undefined>): StoredUser {
+  for (const id of ids) {
+    if (!id) continue;
+    const actor = findUserById(id) || findUserByEmail(id);
+    if (actor?.role === "super_admin") return actor;
+  }
+  throw new Error("Super admin access required");
 }
 
 export function registerLocalUser(input: {
@@ -449,6 +540,12 @@ function createUserAccount(input: {
 
   db.users.push(user);
   saveDb(db);
+  logActivity({
+    kind: "user_create",
+    action: `Created account ${user.email} (${user.role})`,
+    target: user.id,
+    meta: { role: user.role },
+  });
   return publicUser(user);
 }
 
@@ -458,6 +555,13 @@ export function loginLocalUser(email: string, password: string): User {
     throw new Error("Invalid email or password");
   }
   recordLogin(user.id);
+  logActivity({
+    kind: "login",
+    action: `Signed in: ${user.email}`,
+    actor: user.email,
+    target: user.id,
+    meta: { role: user.role },
+  });
   const fresh = findUserById(user.id);
   return publicUser(fresh || user);
 }
