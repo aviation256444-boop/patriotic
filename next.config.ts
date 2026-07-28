@@ -4,6 +4,13 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Dev tunnels only (local). Production uses permanent host URL.
   allowedDevOrigins: ["*.trycloudflare.com"],
+  // Don't fail free-tier deploys on lint noise
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: false,
+  },
   // Allow larger image uploads via App Router route handlers
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],

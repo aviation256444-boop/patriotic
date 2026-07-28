@@ -1,7 +1,5 @@
-# Permanent host after deploy:
-#   https://patriotic.onrender.com
-# Set PAWAPAY_API_TOKEN in Render Dashboard → Environment.
-# Docs: https://render.com/docs/blueprint-spec
+# Permanent URL: https://patriotic.onrender.com
+# Set secret PAWAPAY_API_TOKEN in Render Dashboard → Environment
 services:
   - type: web
     name: patriotic
@@ -9,8 +7,10 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    # Install + build (legacy-peer-deps helps React 19 free-tier installs)
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    # Bind all interfaces; Render injects PORT
+    startCommand: npx next start -H 0.0.0.0 -p $PORT
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
@@ -19,6 +19,8 @@ services:
         value: production
       - key: NODE_OPTIONS
         value: --max-old-space-size=460
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
       - key: NEXT_PUBLIC_DEMO_MODE
         value: "false"
       - key: NEXT_PUBLIC_APP_NAME
