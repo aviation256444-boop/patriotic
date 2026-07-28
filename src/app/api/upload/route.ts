@@ -3,11 +3,17 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { registerMedia } from "@/lib/cms/store";
+import {
+  hasCloudinaryConfig,
+  uploadBufferToCloudinary,
+} from "@/lib/upload/cloudinary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_SIZE = 12 * 1024 * 1024; // 12MB
+/** Logos under this size can be inlined as data URLs so they survive Render redeploys */
+const INLINE_MAX = 450 * 1024;
 
 const EXT_MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -33,14 +39,14 @@ function detectType(file: File): { mime: string; ext: string } | null {
       mime === "image/jpeg"
         ? "jpg"
         : mime === "image/png"
-        ? "png"
-        : mime === "image/webp"
-        ? "webp"
-        : mime === "image/gif"
-        ? "gif"
-        : mime === "image/svg+xml"
-        ? "svg"
-        : nameExt || "jpg";
+          ? "png"
+          : mime === "image/webp"
+            ? "webp"
+            : mime === "image/gif"
+              ? "gif"
+              : mime === "image/svg+xml"
+                ? "svg"
+                : nameExt || "jpg";
     return { mime, ext };
   }
 
@@ -80,28 +86,52 @@ export async function POST(request: Request) {
       );
     }
 
-    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${detected.ext}`;
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    await fs.mkdir(uploadDir, { recursive: true });
-
     const buffer = Buffer.from(await file.arrayBuffer());
-    const fullPath = path.join(uploadDir, filename);
-    await fs.writeFile(fullPath, buffer);
+    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${detected.ext}`;
+    let permanentUrl = "";
+    let storage: "cloudinary" | "disk" | "inline" = "disk";
 
-    // Confirm file exists on disk
-    const stat = await fs.stat(fullPath);
-    if (!stat.size) {
-      throw new Error("Upload wrote an empty file");
+    // 1) Prefer Cloudinary when configured (survives Render redeploys)
+    if (hasCloudinaryConfig()) {
+      const cloud = await uploadBufferToCloudinary(buffer, filename, detected.mime);
+      if (cloud?.url) {
+        permanentUrl = cloud.url;
+        storage = "cloudinary";
+      }
     }
 
-    const baseUrl = `/uploads/${filename}`;
-    const url = `${baseUrl}?v=${Date.now()}`;
+    // 2) Always write local disk copy when not using cloud (or as backup)
+    if (!permanentUrl || storage === "disk") {
+      const uploadDir = path.join(process.cwd(), "public", "uploads");
+      await fs.mkdir(uploadDir, { recursive: true });
+      const fullPath = path.join(uploadDir, filename);
+      await fs.writeFile(fullPath, buffer);
+      const stat = await fs.stat(fullPath);
+      if (!stat.size) throw new Error("Upload wrote an empty file");
+      if (!permanentUrl) {
+        permanentUrl = `/uploads/${filename}`;
+        storage = "disk";
+      }
+    }
+
+    // 3) Small images: also offer data URL (persists inside cms-db.json on free hosts)
+    let dataUrl: string | undefined;
+    if (buffer.length <= INLINE_MAX && !detected.mime.includes("svg")) {
+      dataUrl = `data:${detected.mime};base64,${buffer.toString("base64")}`;
+    }
+
+    const version = Date.now();
+    const url = permanentUrl.startsWith("data:")
+      ? permanentUrl
+      : permanentUrl.includes("?")
+        ? permanentUrl
+        : `${permanentUrl}?v=${version}`;
 
     let mediaId: string | undefined;
     try {
       const media = await registerMedia(
         {
-          url: baseUrl,
+          url: permanentUrl.startsWith("data:") ? permanentUrl.slice(0, 80) + "…" : permanentUrl,
           filename,
           size: file.size,
           type: detected.mime,
@@ -111,18 +141,20 @@ export async function POST(request: Request) {
       );
       mediaId = String(media.id);
     } catch (e) {
-      // File is still on disk even if media registry fails
       console.error("registerMedia failed", e);
     }
 
     return NextResponse.json(
       {
         url,
-        permanentUrl: baseUrl,
+        permanentUrl,
+        /** Prefer this for logo/hero on free hosting if under size limit */
+        dataUrl,
         filename,
         size: file.size,
         type: detected.mime,
         mediaId,
+        storage,
         success: true,
       },
       {
@@ -140,7 +172,7 @@ export async function POST(request: Request) {
   }
 }
 
-/** List files on disk + sync into response */
+/** List files on disk */
 export async function GET() {
   try {
     const uploadDir = path.join(process.cwd(), "public", "uploads");

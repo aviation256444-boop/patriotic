@@ -20,13 +20,12 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Bust React Query + force active queries to refetch immediately */
+/** Bust React Query so header/logo/hero update immediately after save */
 async function bustCmsCache(qc: ReturnType<typeof useQueryClient>, collection?: string) {
   await qc.invalidateQueries({ queryKey: ["cms"], refetchType: "all" });
   if (collection) {
     await qc.invalidateQueries({ queryKey: ["cms", collection], refetchType: "all" });
   }
-  // Also hard-remove so next mount always hits the network
   await qc.refetchQueries({ queryKey: ["cms"], type: "all" });
 }
 
@@ -89,7 +88,9 @@ export function useUpdateSite() {
         method: "PUT",
         body: JSON.stringify({ data, actor }),
       }),
-    onSuccess: async () => {
+    onSuccess: async (site) => {
+      // Optimistically put site in cache so logo updates without full reload
+      qc.setQueryData(["cms", "site"], site);
       await bustCmsCache(qc, "site");
     },
   });
@@ -163,7 +164,11 @@ export function useUploadImage() {
       const form = new FormData();
       form.append("file", file);
       form.append("actor", actor);
-      const res = await fetch("/api/upload", { method: "POST", body: form, cache: "no-store" });
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
         throw new Error(err.error || "Upload failed");
@@ -171,12 +176,13 @@ export function useUploadImage() {
       return res.json() as Promise<{
         url: string;
         permanentUrl: string;
+        dataUrl?: string;
         filename: string;
         mediaId?: string;
+        storage?: string;
       }>;
     },
     onSuccess: async () => {
-      // Media library + any page using images should refresh
       await bustCmsCache(qc, "media");
     },
   });
@@ -212,7 +218,6 @@ export function useCmsImport() {
   });
 }
 
-/** Helper: find program/project/event/news by slug from CMS collections */
 export function findBySlug<T extends { slug?: string; id?: string }>(
   items: T[] | undefined,
   slug: string

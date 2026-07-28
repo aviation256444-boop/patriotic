@@ -88,15 +88,14 @@ export function BrandLogo({
           {logo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={`${logo}-${dataUpdatedAt}`}
+              key={`${logo.slice(0, 48)}-${dataUpdatedAt}`}
               src={mediaUrl(logo, dataUpdatedAt)}
               alt=""
               className={cn(
                 "absolute inset-0 h-full w-full",
-                // Zoom into crest so crane / shield detail reads clearly in the same frame
-                "object-cover object-center scale-[1.55]",
-                // Slight polish so gold/black pops in the cutout
-                "contrast-[1.06] saturate-[1.08]"
+                // Full logo visible (no heavy crop) — fits inside the circular crest
+                "object-contain object-center p-[6%]",
+                "contrast-[1.04] saturate-[1.06]"
               )}
               draggable={false}
             />

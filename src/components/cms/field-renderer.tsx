@@ -37,12 +37,18 @@ export function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
   }
 
   if (field.type === "image") {
+    // Logos & site images: prefer data URL / permanent storage so free hosts keep them
+    const preferInline =
+      field.key === "logoUrl" ||
+      field.key === "heroImage" ||
+      field.key === "ogImage";
     return (
       <div className="space-y-1">
         <ImageUpload
           label={field.label}
           value={typeof value === "string" ? value : ""}
           onChange={(url) => onChange(url)}
+          preferInline={preferInline}
         />
         {field.help && <p className="text-xs text-muted-foreground">{field.help}</p>}
         {field.required && !value && (

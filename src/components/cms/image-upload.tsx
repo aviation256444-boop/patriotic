@@ -14,13 +14,28 @@ interface ImageUploadProps {
   onChange: (url: string) => void;
   label?: string;
   className?: string;
+  /**
+   * Prefer embedding small images as data URLs so they survive host redeploys
+   * (important for site logo / hero on free Render).
+   */
+  preferInline?: boolean;
+  /** Fired after a successful upload with the final URL that was applied */
+  onUploaded?: (url: string) => void;
 }
 
 function stripQuery(url: string) {
+  if (!url || url.startsWith("data:")) return url || "";
   return url.split("?")[0];
 }
 
-export function ImageUpload({ value, onChange, label, className }: ImageUploadProps) {
+export function ImageUpload({
+  value,
+  onChange,
+  label,
+  className,
+  preferInline = false,
+  onUploaded,
+}: ImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadImage();
   const { data: mediaData, refetch: refetchMedia } = useCmsCollection("media");
@@ -31,13 +46,14 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
   const [urlInput, setUrlInput] = useState(value || "");
   const [previewKey, setPreviewKey] = useState(Date.now());
   const [dragOver, setDragOver] = useState(false);
+  const [broken, setBroken] = useState(false);
 
   useEffect(() => {
     setUrlInput(value || "");
     setPreviewKey(Date.now());
+    setBroken(false);
   }, [value]);
 
-  // Also load files from disk so library is never empty if uploads exist
   useEffect(() => {
     if (!libraryOpen) return;
     fetch("/api/upload", { cache: "no-store" })
@@ -48,6 +64,17 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
       .catch(() => undefined);
   }, [libraryOpen, media.length]);
 
+  const applyUrl = useCallback(
+    (raw: string) => {
+      const next = stripQuery(raw) || raw;
+      onChange(next);
+      setPreviewKey(Date.now());
+      setBroken(false);
+      onUploaded?.(next);
+    },
+    [onChange, onUploaded]
+  );
+
   const handleFile = useCallback(
     async (file: File) => {
       if (!file) return;
@@ -57,23 +84,46 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
       }
       try {
         const result = await upload.mutateAsync(file);
-        const permanent = result.permanentUrl || stripQuery(result.url);
+        // Prefer permanent CDN URL, then dataUrl for small logos, then disk path
+        let permanent =
+          result.permanentUrl ||
+          stripQuery(result.url) ||
+          "";
+        if (preferInline && result.dataUrl) {
+          permanent = result.dataUrl;
+        } else if (!permanent && result.dataUrl) {
+          permanent = result.dataUrl;
+        }
         if (!permanent) throw new Error("Upload returned no URL");
-        onChange(permanent);
-        setPreviewKey(Date.now());
+
+        applyUrl(permanent);
         await refetchMedia();
-        toast.success("Image uploaded successfully", {
-          description: "Saved to Media Library — usable anywhere on the site after you click Save.",
+
+        const where =
+          result.storage === "cloudinary"
+            ? "Cloudinary (permanent)"
+            : preferInline && result.dataUrl
+              ? "saved inside site settings (survives redeploy)"
+              : "saved on this server";
+
+        toast.success("Image uploaded", {
+          description: preferInline
+            ? `${where}. Publishing to the live site…`
+            : `${where}. Click Save if this form has a Save button.`,
         });
       } catch (e) {
         console.error(e);
         toast.error(e instanceof Error ? e.message : "Upload failed");
       }
     },
-    [onChange, upload, refetchMedia]
+    [upload, refetchMedia, preferInline, applyUrl]
   );
 
-  const displaySrc = value ? mediaUrl(value, previewKey) : "";
+  const displaySrc = value
+    ? value.startsWith("data:")
+      ? value
+      : mediaUrl(value, previewKey)
+    : "";
 
   const libraryItems: { url: string; id: string; alt?: string }[] = [
     ...media.map((m) => ({ url: m.url, id: m.id, alt: m.alt || m.filename })),
@@ -94,19 +144,26 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
       )}
 
       {value ? (
-        <div className="relative rounded-xl overflow-hidden border border-border/50 group">
+        <div className="relative rounded-xl overflow-hidden border border-border/50 group bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            key={displaySrc}
+            key={displaySrc.slice(0, 64)}
             src={displaySrc}
             alt="Preview"
-            className="h-44 w-full object-cover bg-muted"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.opacity = "0.3";
-            }}
+            className={cn(
+              "h-44 w-full object-contain bg-muted p-2",
+              broken && "opacity-30"
+            )}
+            onError={() => setBroken(true)}
+            onLoad={() => setBroken(false)}
           />
+          {broken && (
+            <p className="absolute inset-0 flex items-center justify-center text-xs text-red-600 font-medium bg-red-500/10">
+              Image failed to load — re-upload
+            </p>
+          )}
           <div className="absolute bottom-0 inset-x-0 bg-black/60 px-3 py-1.5 text-[10px] text-white/80 truncate">
-            {stripQuery(value)}
+            {value.startsWith("data:") ? "embedded image (data URL)" : stripQuery(value)}
           </div>
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
             <Button
@@ -116,7 +173,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
               className="text-white"
               onClick={() => inputRef.current?.click()}
             >
-              Replace upload
+              Replace
             </Button>
             <Button
               type="button"
@@ -125,6 +182,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
               onClick={() => {
                 onChange("");
                 setPreviewKey(Date.now());
+                setBroken(false);
               }}
             >
               <X className="h-4 w-4" />
@@ -142,7 +200,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
             e.preventDefault();
             setDragOver(false);
             const f = e.dataTransfer.files?.[0];
-            if (f) handleFile(f);
+            if (f) void handleFile(f);
           }}
           className={cn(
             "relative rounded-xl border-2 border-dashed transition-colors",
@@ -167,9 +225,6 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
                 </div>
                 <span className="text-sm font-semibold">Click to upload image</span>
                 <span className="text-xs">or drag & drop · JPG, PNG, WebP · max 12MB</span>
-                <span className="text-[10px] text-muted-foreground">
-                  No external link required — stored on this website
-                </span>
               </>
             )}
           </button>
@@ -183,7 +238,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) handleFile(f);
+          if (f) void handleFile(f);
           e.target.value = "";
         }}
       />
@@ -209,7 +264,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => setUrlMode(!urlMode)}>
           <LinkIcon className="h-3.5 w-3.5" />
-          {urlMode ? "Hide link" : "Paste link (optional)"}
+          {urlMode ? "Hide link" : "Paste link"}
         </Button>
       </div>
 
@@ -217,7 +272,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
         <div className="rounded-xl border border-border/50 p-3 max-h-56 overflow-y-auto bg-card">
           {libraryItems.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-6">
-              No uploads yet. Use <strong>Upload from device</strong> first — images will show here for reuse on any page.
+              No uploads yet. Use <strong>Upload from device</strong> first.
             </p>
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -227,8 +282,7 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
                   type="button"
                   title={m.alt}
                   onClick={() => {
-                    onChange(stripQuery(m.url));
-                    setPreviewKey(Date.now());
+                    applyUrl(m.url);
                     setLibraryOpen(false);
                     toast.success("Image selected from library");
                   }}
@@ -257,15 +311,14 @@ export function ImageUpload({ value, onChange, label, className }: ImageUploadPr
           <input
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="Optional: https://… or /uploads/…"
+            placeholder="https://… or /uploads/…"
             className="flex-1 h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
           />
           <Button
             type="button"
             size="sm"
             onClick={() => {
-              onChange(urlInput.trim());
-              setPreviewKey(Date.now());
+              applyUrl(urlInput.trim());
               toast.success("Image URL set");
             }}
           >
