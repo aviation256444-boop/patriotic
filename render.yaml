@@ -29,6 +29,9 @@ services:
         value: Patriotic Youths of Uganda
       - key: NEXT_PUBLIC_APP_URL
         value: https://patriotic-app.onrender.com
+      # Public Google OAuth Web Client ID (account picker on login/register)
+      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        value: 868445110488-pj1f968b1a5f444bva2hkl9gc4v550uu.apps.googleusercontent.com
       - key: NEXT_PUBLIC_PAWAPAY_ENABLED
         value: "true"
       - key: PAWAPAY_ENV
@@ -59,8 +62,6 @@ services:
         value: "true"
       - key: AUTH_SECRET
         generateValue: true
-      # Set this in the Render dashboard after creating a Google OAuth Web client:
-      # NEXT_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
-      # Optional: show email OTP codes when Resend is not configured
+      # Show email OTP on-screen when Resend email is not configured
       - key: AUTH_SHOW_OTP
         value: "true"
