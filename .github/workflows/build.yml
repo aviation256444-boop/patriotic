@@ -1,0 +1,27 @@
+name: Build check (Linux)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_APP_URL: https://patriotic.onrender.com
+          NEXT_PUBLIC_PAWAPAY_ENABLED: "true"
+          PAWAPAY_ENV: production
+          PAWAPAY_BASE_URL: https://api.pawapay.io

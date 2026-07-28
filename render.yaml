@@ -1,5 +1,6 @@
-# Permanent URL: https://patriotic.onrender.com
-# Set secret PAWAPAY_API_TOKEN in Render Dashboard → Environment
+# Public URL: https://patriotic.onrender.com
+# IMPORTANT: In Dashboard → Environment, set:
+#   PAWAPAY_API_TOKEN = your live token
 services:
   - type: web
     name: patriotic
@@ -7,16 +8,16 @@ services:
     plan: free
     region: oregon
     branch: main
-    # Install + build (legacy-peer-deps helps React 19 free-tier installs)
-    buildCommand: npm install --legacy-peer-deps && npm run build
-    # Bind all interfaces; Render injects PORT
-    startCommand: npx next start -H 0.0.0.0 -p $PORT
+    buildCommand: npm install --legacy-peer-deps --no-audit --no-fund && npm run build
+    startCommand: npm run start -- -H 0.0.0.0 -p $PORT
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "20.18.0"
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "10000"
       - key: NODE_OPTIONS
         value: --max-old-space-size=460
       - key: NEXT_TELEMETRY_DISABLED
