@@ -1,55 +1,24 @@
 import { NextResponse } from "next/server";
-import { randomBytes } from "crypto";
-import { getGoogleClientId } from "@/lib/auth/google-oauth";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/auth/oauth/google/start?next=/dashboard
- * Redirects to Google account picker (all Gmail accounts on the device).
+ * Legacy route: used to redirect with OAuth implicit response_type=id_token.
+ * Google blocks that flow (Error 400: invalid_request / policy).
+ * Sign-in now uses Google Identity Services on the login/register pages.
  */
 export async function GET(request: Request) {
-  const clientId = getGoogleClientId();
-  if (!clientId) {
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      new URL(request.url).origin ||
-      "http://localhost:3000";
-    return NextResponse.redirect(
-      new URL(
-        `/auth/login?google_error=${encodeURIComponent(
-          "Add NEXT_PUBLIC_GOOGLE_CLIENT_ID in Render Environment, then Manual Deploy (Clear build cache)."
-        )}`,
-        appUrl
-      )
-    );
-  }
-
+  const origin = new URL(request.url).origin;
   const { searchParams } = new URL(request.url);
   const next = searchParams.get("next") || "/dashboard";
   const mode = searchParams.get("mode") || "login";
 
-  // Use the host the user is actually on (local or Render) so redirect_uri matches
-  const origin = new URL(request.url).origin;
-
-  const redirectUri = `${origin}/auth/callback/google`;
-  const nonce = randomBytes(16).toString("hex");
-  const state = Buffer.from(
-    JSON.stringify({ next, mode, nonce, t: Date.now() })
-  ).toString("base64url");
-
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "id_token",
-    scope: "openid email profile",
-    nonce,
-    state,
-    // Force the full account chooser (all Google accounts on the device)
-    prompt: "select_account",
-    // Access type not needed for id_token
+  const path = mode === "register" ? "/auth/register" : "/auth/login";
+  const qs = new URLSearchParams({
+    google_error:
+      "Please use the Google button on this page (updated secure sign-in).",
   });
+  if (next.startsWith("/")) qs.set("next", next);
 
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(new URL(`${path}?${qs.toString()}`, origin));
 }

@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth-store";
+import { toast } from "sonner";
+import type { User } from "@/types";
 
 type Props = {
   mode?: "login" | "register";
@@ -13,9 +17,87 @@ type Props = {
   quiet?: boolean;
 };
 
+/** Public Web Client ID (not a secret). Must match Google Cloud Console. */
+const GOOGLE_CLIENT_ID =
+  (typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim()) ||
+  "868445110488-pj1f968b1a5f444bva2hkl9gc4v550uu.apps.googleusercontent.com";
+
+type CredentialResponse = { credential: string; select_by?: string };
+
+type PromptNotification = {
+  isNotDisplayed: () => boolean;
+  isSkippedMoment: () => boolean;
+  isDismissedMoment: () => boolean;
+  getNotDisplayedReason?: () => string;
+  getSkippedReason?: () => string;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: CredentialResponse) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+            context?: "signin" | "signup" | "use";
+            itp_support?: boolean;
+            use_fedcm_for_prompt?: boolean;
+          }) => void;
+          prompt: (listener?: (n: PromptNotification) => void) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: Record<string, string | number>
+          ) => void;
+          cancel: () => void;
+          disableAutoSelect: () => void;
+        };
+      };
+    };
+  }
+}
+
+function loadGisScript(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("No window"));
+  }
+  if (window.google?.accounts?.id) {
+    return Promise.resolve();
+  }
+  const existing = document.querySelector<HTMLScriptElement>(
+    'script[data-google-gis="1"]'
+  );
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Failed to load Google Sign-In")),
+        { once: true }
+      );
+      // Already loaded between checks
+      if (window.google?.accounts?.id) resolve();
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.defer = true;
+    s.dataset.googleGis = "1";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Failed to load Google Sign-In"));
+    document.head.appendChild(s);
+  });
+}
+
 /**
- * Always-visible Google button.
- * Tap → Google account list on this device → pick Gmail → login or auto-register.
+ * Compliant Google sign-in via Google Identity Services (GIS).
+ * Does NOT use OAuth implicit response_type=id_token (blocked by Google policy).
+ * Tap → account chooser → JWT credential → POST /api/auth/oauth/google → session.
  */
 export function GoogleSignInButton({
   mode = "login",
@@ -23,17 +105,179 @@ export function GoogleSignInButton({
   className,
   size = "default",
 }: Props) {
+  const router = useRouter();
+  const setUser = useAuthStore((s) => s.setUser);
   const [busy, setBusy] = useState(false);
+  const [gisReady, setGisReady] = useState(false);
+  const gisHostRef = useRef<HTMLDivElement>(null);
+  const nextPathRef = useRef(nextPath);
+  const modeRef = useRef(mode);
+
+  nextPathRef.current = nextPath;
+  modeRef.current = mode;
+
+  const routeAfterLogin = useCallback(
+    (user: User) => {
+      const next = nextPathRef.current.startsWith("/")
+        ? nextPathRef.current
+        : "/dashboard";
+      if (user.role === "super_admin") router.replace("/super-admin");
+      else if (
+        user.role === "admin" ||
+        user.role === "regional_admin" ||
+        user.role === "district_admin"
+      )
+        router.replace("/admin");
+      else if (next && next !== "/dashboard") router.replace(next);
+      else router.replace("/dashboard");
+    },
+    [router]
+  );
+
+  const finishWithCredential = useCallback(
+    async (credential: string) => {
+      setBusy(true);
+      try {
+        const res = await fetch("/api/auth/oauth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Google sign-in failed");
+        }
+        const user = data.user as User;
+        setUser(user);
+        try {
+          localStorage.setItem("pyu_user", JSON.stringify(user));
+        } catch {
+          /* ignore */
+        }
+        toast.success(`Welcome, ${user.fullName.split(" ")[0]}!`);
+        routeAfterLogin(user);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Google sign-in failed";
+        toast.error(msg);
+        setBusy(false);
+      }
+    },
+    [routeAfterLogin, setUser]
+  );
+
+  const finishRef = useRef(finishWithCredential);
+  finishRef.current = finishWithCredential;
+
+  // Load GIS once and keep a full-width official button as reliable fallback
+  useEffect(() => {
+    let cancelled = false;
+
+    loadGisScript()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id) return;
+
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: (response) => {
+            if (response?.credential) {
+              void finishRef.current(response.credential);
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+          context: modeRef.current === "register" ? "signup" : "signin",
+          itp_support: true,
+          use_fedcm_for_prompt: true,
+        });
+
+        const host = gisHostRef.current;
+        if (host) {
+          host.innerHTML = "";
+          const width = Math.min(
+            400,
+            Math.max(280, host.parentElement?.clientWidth || 320)
+          );
+          window.google.accounts.id.renderButton(host, {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text: modeRef.current === "register" ? "signup_with" : "continue_with",
+            shape: "rectangular",
+            width,
+            logo_alignment: "left",
+          });
+        }
+
+        setGisReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error(
+            "Could not load Google Sign-In. Check your network and try again."
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
 
   const startGoogle = useCallback(() => {
+    if (!window.google?.accounts?.id) {
+      toast.error("Google Sign-In is still loading — wait a second and try again.");
+      return;
+    }
+    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length < 20) {
+      toast.error("Google Client ID is not configured.");
+      return;
+    }
+
     setBusy(true);
-    const qs = new URLSearchParams({
-      mode,
-      next: nextPath.startsWith("/") ? nextPath : "/dashboard",
+
+    // Re-init so context matches current mode, then open account chooser
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: (response) => {
+        if (response?.credential) {
+          void finishRef.current(response.credential);
+        } else {
+          setBusy(false);
+        }
+      },
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      context: mode === "register" ? "signup" : "signin",
+      itp_support: true,
+      use_fedcm_for_prompt: true,
     });
-    // Redirect opens Google's full account chooser (all Gmail accounts on device)
-    window.location.href = `/api/auth/oauth/google/start?${qs.toString()}`;
-  }, [mode, nextPath]);
+
+    window.google.accounts.id.prompt((notification) => {
+      // One Tap / FedCM may be blocked; fall back to official GIS button click
+      if (
+        notification.isNotDisplayed() ||
+        notification.isSkippedMoment() ||
+        notification.isDismissedMoment()
+      ) {
+        const btn = gisHostRef.current?.querySelector(
+          'div[role="button"]'
+        ) as HTMLElement | null;
+        if (btn) {
+          btn.click();
+        } else {
+          toast.message("Use the Google button below to pick your account.");
+        }
+        setBusy(false);
+      }
+      // If prompt is visible, keep busy until credential callback or dismiss
+      if (notification.isDismissedMoment()) {
+        setBusy(false);
+      }
+    });
+
+    // Safety: if nothing happens, clear spinner
+    window.setTimeout(() => setBusy(false), 8000);
+  }, [mode]);
 
   return (
     <div className={cn("w-full space-y-2", className)}>
@@ -59,9 +303,20 @@ export function GoogleSignInButton({
           {mode === "register" ? "Sign up with Google" : "Continue with Google"}
         </span>
       </button>
+
+      {/* Official GIS button — policy-compliant account picker (always available) */}
+      <div
+        ref={gisHostRef}
+        className={cn(
+          "w-full flex justify-center min-h-[44px]",
+          !gisReady && "opacity-50"
+        )}
+        aria-label="Google Sign-In"
+      />
+
       <p className="text-[11px] text-center text-muted-foreground leading-snug">
-        Tap to see every Google / Gmail account on this device, then choose one to
-        sign in or create an account automatically.
+        Tap Google to choose any Gmail account on this device. New accounts are
+        created automatically. Password login stays available above.
       </p>
     </div>
   );
