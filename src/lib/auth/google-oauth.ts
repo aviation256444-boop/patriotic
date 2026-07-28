@@ -18,14 +18,24 @@ type GoogleTokenInfo = {
   error_description?: string;
 };
 
-/** Client ID from Render env (either name works). Strip quotes/spaces. */
+/**
+ * Google OAuth Web Client ID (public).
+ * IMPORTANT: reference process.env.NEXT_PUBLIC_* as a direct property so
+ * Next.js inlines it at build time from .env.production / Render env.
+ */
+const BAKED_GOOGLE_CLIENT_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+  // Public Web Client ID fallback (safe — not a secret). Ensures Render
+  // still works if dashboard env was never set.
+  "868445110488-pj1f968b1a5f444bva2hkl9gc4v550uu.apps.googleusercontent.com";
+
 export function getGoogleClientId(): string {
   const raw =
-    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+    BAKED_GOOGLE_CLIENT_ID ||
     process.env.GOOGLE_CLIENT_ID ||
     process.env.GOOGLE_OAUTH_CLIENT_ID ||
     "";
-  return raw.trim().replace(/^["']|["']$/g, "");
+  return String(raw).trim().replace(/^["']|["']$/g, "");
 }
 
 export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
