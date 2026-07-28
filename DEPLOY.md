@@ -1,55 +1,41 @@
-# Permanent public hosting (no Cloudflare)
+# Deploy to Render (permanent public URL)
 
-Code is on GitHub:  
-https://github.com/Dannyparasite256/patriotic-youths-uganda
+GitHub: https://github.com/aviation256444-boop/patriotic
 
-## Fastest: one-click Render deploy
+## One-click deploy
 
-1. Open this link (logged into Render with your GitHub account):
+1. Open (logged into Render with **aviation256444-boop** GitHub):
 
-   **https://render.com/deploy?repo=https://github.com/Dannyparasite256/patriotic-youths-uganda**
+   **https://render.com/deploy?repo=https://github.com/aviation256444-boop/patriotic**
 
-2. Click **Apply** / create the Blueprint service.
-3. When the service is created, open **Environment** and set:
+2. Click **Apply** / create the Blueprint.
+3. After the service exists, open **Environment** and set:
 
 | Key | Value |
 |-----|--------|
-| `NEXT_PUBLIC_APP_URL` | `https://patriotic-youths-uganda.onrender.com` *(use the exact URL Render shows)* |
-| `PAWAPAY_API_TOKEN` | Your **live** PawaPay API token |
-| `PAWAPAY_ENV` | `production` |
-| `PAWAPAY_BASE_URL` | `https://api.pawapay.io` |
-| `NEXT_PUBLIC_PAWAPAY_ENABLED` | `true` |
-| `NEXT_PUBLIC_PAWAPAY_ENV` | `production` |
-| `NEXT_PUBLIC_DEMO_MODE` | `false` |
-| Square keys (optional) | Same production values as local if you use cards |
+| `PAWAPAY_API_TOKEN` | Your **live** PawaPay token |
+| `NEXT_PUBLIC_APP_URL` | `https://patriotic.onrender.com` *(or the exact URL Render shows)* |
 
-4. **Manual Deploy** → clear build cache & deploy.
-5. Wait until status is **Live**.
+Other PawaPay / app vars are already in `render.yaml`.
 
-### Your permanent link (example)
+4. **Manual Deploy** → Clear build cache & deploy.
+5. Wait until status is **Live** (5–15 min on free tier).
+
+## Public links
 
 ```text
-https://patriotic-youths-uganda.onrender.com
-https://patriotic-youths-uganda.onrender.com/donate
+https://patriotic.onrender.com
+https://patriotic.onrender.com/donate
 ```
 
-*(If Render assigns a slightly different name, use the URL on the service page.)*
-
-## PawaPay live callbacks (required for permanent site)
-
-In the **live** PawaPay dashboard → Callback URLs, paste **the same URL** for all fields:
+## PawaPay live callbacks
 
 ```text
-https://patriotic-youths-uganda.onrender.com/api/payments/pawapay/callback
+https://patriotic.onrender.com/api/payments/pawapay/callback
 ```
 
-Replace the hostname if your Render URL is different.
+Paste that URL for Deposits (and other callback fields) in the **live** PawaPay dashboard.
 
-## Free plan note
+## Free tier
 
-- Free Render apps **sleep** after idle time; first open can take ~30–60 seconds.
-- No Cloudflare tunnel needed after this.
-
-## Local development
-
-Keep using `http://localhost:3000` with `.env.local` as before.
+App may sleep when idle; first visit can take 30–60 seconds to wake.

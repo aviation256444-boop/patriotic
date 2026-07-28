@@ -1,9 +1,10 @@
-# Permanent host: https://patriotic-youths-uganda.onrender.com
-# Set PAWAPAY_API_TOKEN in Dashboard → Environment (do not put secrets here).
+# Permanent host after deploy:
+#   https://patriotic.onrender.com
+# Set PAWAPAY_API_TOKEN in Render Dashboard → Environment.
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: patriotic-youths-uganda
+    name: patriotic
     runtime: node
     plan: free
     region: oregon
@@ -23,7 +24,7 @@ services:
       - key: NEXT_PUBLIC_APP_NAME
         value: Patriotic Youths of Uganda
       - key: NEXT_PUBLIC_APP_URL
-        value: https://patriotic-youths-uganda.onrender.com
+        value: https://patriotic.onrender.com
       - key: NEXT_PUBLIC_PAWAPAY_ENABLED
         value: "true"
       - key: PAWAPAY_ENV
