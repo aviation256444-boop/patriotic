@@ -1,7 +1,8 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Search, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,15 +25,6 @@ const titles: Record<string, string> = {
   audit: "Audit Logs",
 };
 
-const demoMembers = [
-  { name: "Amina Nakato", email: "member@pyu.ug", district: "Kampala", status: "active", role: "member" },
-  { name: "David Okello", email: "admin@pyu.ug", district: "Kampala", status: "active", role: "admin" },
-  { name: "Grace Achieng", email: "grace@pyu.ug", district: "Gulu", status: "active", role: "member" },
-  { name: "Brian Ssempijja", email: "brian@pyu.ug", district: "Kampala", status: "active", role: "volunteer" },
-  { name: "Faith Namukasa", email: "faith@pyu.ug", district: "Mbale", status: "pending", role: "member" },
-  { name: "Joseph Okot", email: "joseph@pyu.ug", district: "Arua", status: "active", role: "member" },
-];
-
 export default function AdminSubPage({
   params,
 }: {
@@ -41,6 +33,20 @@ export default function AdminSubPage({
   const { slug } = use(params);
   const page = slug[0] || "members";
   const title = titles[page] || "Admin";
+  const router = useRouter();
+
+  // Members has a dedicated live page at /admin/members
+  useEffect(() => {
+    if (page === "members") {
+      router.replace("/admin/members");
+    }
+  }, [page, router]);
+
+  if (page === "members") {
+    return (
+      <p className="text-sm text-muted-foreground p-6">Opening live members list…</p>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -67,43 +73,6 @@ export default function AdminSubPage({
           </Button>
         </div>
       </div>
-
-      {page === "members" && (
-        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Name</th>
-                  <th className="px-4 py-3 font-semibold">Email</th>
-                  <th className="px-4 py-3 font-semibold">District</th>
-                  <th className="px-4 py-3 font-semibold">Role</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 font-semibold"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {demoMembers.map((m) => (
-                  <tr key={m.email} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{m.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{m.email}</td>
-                    <td className="px-4 py-3">{m.district}</td>
-                    <td className="px-4 py-3 capitalize">{m.role}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={m.status === "active" ? "success" : "warning"}>{m.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button className="p-1 hover:bg-muted rounded-lg" aria-label="Actions">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {page === "events" && (
         <div className="space-y-3">

@@ -4,8 +4,10 @@ import {
   exportUsersWithSecrets,
   isValidRole,
   listUsersWithMeta,
+  requireStaffAny,
   requireSuperAdminAny,
 } from "@/lib/auth/local-users";
+import { syncUserToCmsMembers } from "@/lib/auth/sync-member";
 import type { MembershipStatus, UserRole } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +27,8 @@ function actorFromRequest(request: Request, body?: Record<string, unknown>) {
 
 /**
  * GET /api/auth/users?actorId=...
- * Super admin only — list all login accounts from data/users.json
- * ?full=1 includes password hashes for browser snapshot restore after redeploy
+ * Admin + super admin — list real login accounts (data/users.json)
+ * ?full=1 (super admin only) includes password hashes for browser snapshot
  */
 export async function GET(request: Request) {
   try {
@@ -47,15 +49,19 @@ export async function GET(request: Request) {
       );
     }
 
-    requireSuperAdminAny(actorId, actorEmail);
     const full = searchParams.get("full") === "1";
     if (full) {
+      // Secrets only for super admin (browser snapshot restore)
+      requireSuperAdminAny(actorId, actorEmail);
       const users = exportUsersWithSecrets();
       return NextResponse.json(
         { success: true, users, count: users.length, full: true },
         { headers: { "Cache-Control": "no-store" } }
       );
     }
+
+    // Staff can list public user accounts
+    requireStaffAny(actorId, actorEmail);
     const users = listUsersWithMeta();
     return NextResponse.json(
       { success: true, users, count: users.length },
@@ -63,7 +69,7 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to list users";
-    const status = /super admin/i.test(message) ? 403 : 500;
+    const status = /admin access|super admin/i.test(message) ? 403 : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }
@@ -106,6 +112,7 @@ export async function POST(request: Request) {
       occupation:
         body.occupation !== undefined ? String(body.occupation) : undefined,
     });
+    await syncUserToCmsMembers(user, actorEmail || actorId || "admin");
 
     return NextResponse.json(
       {

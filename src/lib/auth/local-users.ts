@@ -158,6 +158,7 @@ export function ensureUserRecord(input: {
     ) {
       cur.role = input.role;
     }
+    if (!cur.membershipNumber) cur.membershipNumber = nextMembershipNumber();
     cur.lastLoginAt = new Date().toISOString();
     cur.updatedAt = cur.lastLoginAt;
     db.users[idx] = cur;
@@ -176,6 +177,7 @@ export function ensureUserRecord(input: {
     photoURL: input.photoURL || undefined,
     role,
     membershipStatus: input.membershipStatus || "active",
+    membershipNumber: nextMembershipNumber(),
     // Random password — Firebase/social users set a password via admin if needed
     passwordHash: hashPassword(randomUUID() + randomUUID()),
     volunteerHours: 0,
@@ -451,6 +453,29 @@ export function requireSuperAdminAny(...ids: Array<string | null | undefined>): 
   throw new Error("Super admin access required");
 }
 
+const STAFF_ROLES: UserRole[] = [
+  "admin",
+  "super_admin",
+  "regional_admin",
+  "district_admin",
+];
+
+/** Admin or super admin may list registered login accounts. */
+export function requireStaffAny(...ids: Array<string | null | undefined>): StoredUser {
+  for (const id of ids) {
+    if (!id) continue;
+    const actor = findUserById(id) || findUserByEmail(id);
+    if (actor && STAFF_ROLES.includes(actor.role)) return actor;
+  }
+  throw new Error("Admin access required");
+}
+
+export function nextMembershipNumber(): string {
+  const year = new Date().getFullYear();
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return `PYU-${year}-${n}`;
+}
+
 export function registerLocalUser(input: {
   email: string;
   password: string;
@@ -461,7 +486,8 @@ export function registerLocalUser(input: {
     password: input.password,
     fullName: input.fullName,
     role: "member",
-    membershipStatus: "pending",
+    membershipStatus: "active",
+    membershipNumber: nextMembershipNumber(),
   });
 }
 
@@ -535,7 +561,8 @@ function createUserAccount(input: {
     phone: input.phone?.trim() || undefined,
     role,
     membershipStatus: input.membershipStatus || "pending",
-    membershipNumber: input.membershipNumber?.trim() || undefined,
+    membershipNumber:
+      input.membershipNumber?.trim() || nextMembershipNumber(),
     district: input.district?.trim() || undefined,
     occupation: input.occupation?.trim() || undefined,
     passwordHash: hashPassword(password),

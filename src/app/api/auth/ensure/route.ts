@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureUserRecord, isValidRole } from "@/lib/auth/local-users";
+import { syncUserToCmsMembers } from "@/lib/auth/sync-member";
 import type { UserRole } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       role,
       membershipStatus: body.membershipStatus,
     });
+    await syncUserToCmsMembers(user, "session-ensure");
 
     return NextResponse.json(
       { success: true, user },

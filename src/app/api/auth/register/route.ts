@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { registerLocalUser } from "@/lib/auth/local-users";
+import { syncUserToCmsMembers } from "@/lib/auth/sync-member";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ export async function POST(request: Request) {
     const fullName = String(body.fullName || body.name || "").trim();
 
     const user = registerLocalUser({ email, password, fullName });
+    // So Admin → Members and CMS Members lists show this account
+    await syncUserToCmsMembers(user, "registration");
 
     return NextResponse.json({
       success: true,

@@ -3,7 +3,8 @@
  * Client ID is public — baked in so Render always enables the Google button.
  */
 
-import { ensureUserRecord } from "@/lib/auth/local-users";
+import { ensureUserRecord, nextMembershipNumber } from "@/lib/auth/local-users";
+import { syncUserToCmsMembers } from "@/lib/auth/sync-member";
 import { logActivity } from "@/lib/activity/log";
 import type { User } from "@/types";
 
@@ -67,7 +68,7 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
     throw new Error("Google email is not verified");
   }
 
-  const user = ensureUserRecord({
+  let user = ensureUserRecord({
     id: data.sub ? `google-${data.sub}` : undefined,
     email,
     fullName: data.name || email.split("@")[0],
@@ -75,6 +76,20 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
     role: "member",
     membershipStatus: "active",
   });
+
+  // Ensure membership number exists for Google accounts
+  if (!user.membershipNumber) {
+    const { updateUserByAdmin } = await import("@/lib/auth/local-users");
+    try {
+      user = updateUserByAdmin(user.id, {
+        membershipNumber: nextMembershipNumber(),
+      });
+    } catch {
+      /* keep user as-is */
+    }
+  }
+
+  await syncUserToCmsMembers(user, "google-oauth");
 
   logActivity({
     kind: "login",
