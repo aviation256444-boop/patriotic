@@ -45,6 +45,8 @@ next-env.d.ts
 /data/users.json.*
 /data/activity-log.json
 /data/activity-log.json.bak
+/data/email-otp.json
+/data/email-otp.json.bak
 /data/tickets.json
 /data/tickets.json.bak
 /data/backups/
