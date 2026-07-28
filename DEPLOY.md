@@ -1,57 +1,55 @@
-# Permanent hosting (no Cloudflare tunnel)
+# Permanent public hosting (no Cloudflare)
 
-## Your public site
+Code is on GitHub:  
+https://github.com/Dannyparasite256/patriotic-youths-uganda
 
-After deploy (Render free):
+## Fastest: one-click Render deploy
 
-**https://patriotic-youths-uganda.onrender.com**
+1. Open this link (logged into Render with your GitHub account):
 
-(Exact URL appears in the Render dashboard.)
+   **https://render.com/deploy?repo=https://github.com/Dannyparasite256/patriotic-youths-uganda**
 
-## PawaPay live callbacks (permanent)
+2. Click **Apply** / create the Blueprint service.
+3. When the service is created, open **Environment** and set:
 
-Paste this on the **live** PawaPay dashboard for all callback fields:
+| Key | Value |
+|-----|--------|
+| `NEXT_PUBLIC_APP_URL` | `https://patriotic-youths-uganda.onrender.com` *(use the exact URL Render shows)* |
+| `PAWAPAY_API_TOKEN` | Your **live** PawaPay API token |
+| `PAWAPAY_ENV` | `production` |
+| `PAWAPAY_BASE_URL` | `https://api.pawapay.io` |
+| `NEXT_PUBLIC_PAWAPAY_ENABLED` | `true` |
+| `NEXT_PUBLIC_PAWAPAY_ENV` | `production` |
+| `NEXT_PUBLIC_DEMO_MODE` | `false` |
+| Square keys (optional) | Same production values as local if you use cards |
+
+4. **Manual Deploy** → clear build cache & deploy.
+5. Wait until status is **Live**.
+
+### Your permanent link (example)
+
+```text
+https://patriotic-youths-uganda.onrender.com
+https://patriotic-youths-uganda.onrender.com/donate
+```
+
+*(If Render assigns a slightly different name, use the URL on the service page.)*
+
+## PawaPay live callbacks (required for permanent site)
+
+In the **live** PawaPay dashboard → Callback URLs, paste **the same URL** for all fields:
 
 ```text
 https://patriotic-youths-uganda.onrender.com/api/payments/pawapay/callback
 ```
 
-Also set in Render environment:
+Replace the hostname if your Render URL is different.
 
-```text
-NEXT_PUBLIC_APP_URL=https://patriotic-youths-uganda.onrender.com
-```
+## Free plan note
 
-## One-time setup on Render
+- Free Render apps **sleep** after idle time; first open can take ~30–60 seconds.
+- No Cloudflare tunnel needed after this.
 
-1. Go to https://dashboard.render.com → New → Blueprint  
-   **or** New → Web Service → connect GitHub repo  
-   `Dannyparasite256/patriotic-youths-uganda`
-2. Branch: `main`
-3. Build: `npm install && npm run build`
-4. Start: `npm start`
-5. Add environment variables (see below)
-6. Deploy
+## Local development
 
-### Required secrets (Environment)
-
-| Key | Value |
-|-----|--------|
-| `NEXT_PUBLIC_APP_URL` | `https://YOUR-SERVICE.onrender.com` |
-| `PAWAPAY_API_TOKEN` | Your **live** PawaPay API token |
-| `PAWAPAY_ENV` | `production` |
-| `PAWAPAY_BASE_URL` | `https://api.pawapay.io` |
-| `NEXT_PUBLIC_PAWAPAY_ENABLED` | `true` |
-| Square keys | Same as local production if you use cards |
-
-## Free tier note
-
-Render free services **sleep after ~15 minutes** of no traffic. First visit may take 30–60s to wake. Payments still work after wake.
-
-## Local vs production
-
-| | Local | Production |
-|--|--------|------------|
-| URL | localhost:3000 | `*.onrender.com` |
-| Tunnel | Not needed | Not needed |
-| Callbacks | Optional (polling works) | Use permanent callback URL |
+Keep using `http://localhost:3000` with `.env.local` as before.
