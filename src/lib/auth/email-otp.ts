@@ -85,8 +85,10 @@ export type StartOtpResult = {
   success: true;
   email: string;
   message: string;
-  /** Only when email provider missing / AUTH_SHOW_OTP=true — never rely on this in strict production */
+  /** When email provider missing / AUTH_SHOW_OTP — shown in UI */
   devCode?: string;
+  displayCode?: string;
+  emailed?: boolean;
   isNewUser: boolean;
 };
 
