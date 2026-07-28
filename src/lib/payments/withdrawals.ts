@@ -16,11 +16,12 @@ export type WithdrawalStatus =
 
 export type Withdrawal = {
   id: string;
+  /** PawaPay payoutId, refundId, or local id for manual */
   payoutId: string;
   amount: number;
   currency: string;
-  /** mtn_momo | airtel_money */
-  gateway: "mtn_momo" | "airtel_money";
+  /** mtn_momo | airtel_money | unknown */
+  gateway: "mtn_momo" | "airtel_money" | "unknown";
   phone: string;
   msisdn: string;
   status: WithdrawalStatus;
@@ -31,6 +32,15 @@ export type Withdrawal = {
   actorName?: string;
   note?: string;
   live: boolean;
+  /**
+   * payout = PawaPay PAYOUT to admin phone
+   * refund = money returned to original payer (deposit refund)
+   * manual = recorded after cash-out outside the app (dashboard/settlement)
+   */
+  method?: "payout" | "refund" | "manual";
+  /** For refund method: original deposit / payment ids */
+  depositId?: string;
+  paymentId?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;

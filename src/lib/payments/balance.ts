@@ -18,6 +18,8 @@ type DonationRow = CmsDonation & {
   demo?: boolean;
   purpose?: string;
   paymentProvider?: string;
+  refundStatus?: string;
+  refundedAmount?: number;
 };
 
 export type BalanceSnapshot = {
@@ -45,14 +47,22 @@ export async function getAvailableBalance(): Promise<BalanceSnapshot> {
   const completedLive = donations.filter((d) => {
     if (d.status !== "completed") return false;
     if (d.demoMode === true || d.demo === true) return false;
-    // Prefer live charges; if unknown (legacy), count completed non-demo
+    // Fully refunded payments no longer count as collectible balance
+    if (d.refundStatus === "completed" || d.refundStatus === "processing") {
+      const refunded = Number(d.refundedAmount) || Number(d.amount) || 0;
+      if (refunded >= Number(d.amount)) return false;
+    }
     return true;
   });
 
   let fromDonations = 0;
   let fromEventPayments = 0;
   for (const d of completedLive) {
-    const amt = Number(d.amount) || 0;
+    const refunded =
+      d.refundStatus === "completed" || d.refundStatus === "processing"
+        ? Number(d.refundedAmount) || 0
+        : 0;
+    const amt = Math.max(0, (Number(d.amount) || 0) - refunded);
     const purpose = String(d.purpose || d.campaign || "").toLowerCase();
     if (purpose.includes("event") || purpose.startsWith("event:")) {
       fromEventPayments += amt;
@@ -63,8 +73,13 @@ export async function getAvailableBalance(): Promise<BalanceSnapshot> {
 
   // Ticket store revenue as cross-check (paid seats after confirmed payment)
   const ticketRevenue = Number(tickets.totalRevenue) || 0;
-  // Prefer donation ledger total for money that actually went through checkout
-  const collected = completedLive.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+  const collected = completedLive.reduce((s, d) => {
+    const refunded =
+      d.refundStatus === "completed" || d.refundStatus === "processing"
+        ? Number(d.refundedAmount) || 0
+        : 0;
+    return s + Math.max(0, (Number(d.amount) || 0) - refunded);
+  }, 0);
   // If tickets exist without donation rows (edge), still include ticket revenue not already in ledger
   const collectedSafe = Math.max(collected, ticketRevenue);
 

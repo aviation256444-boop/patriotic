@@ -12,6 +12,8 @@ import {
   Smartphone,
   Loader2,
   ArrowDownToLine,
+  Undo2,
+  Phone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -96,7 +98,7 @@ type Withdrawal = {
   payoutId: string;
   amount: number;
   currency: string;
-  gateway: "mtn_momo" | "airtel_money";
+  gateway: "mtn_momo" | "airtel_money" | "unknown";
   phone: string;
   msisdn: string;
   status: string;
@@ -105,8 +107,23 @@ type Withdrawal = {
   actorEmail?: string;
   actorName?: string;
   note?: string;
+  method?: "payout" | "refund" | "manual";
   createdAt: string;
   completedAt?: string;
+};
+
+type RefundablePayment = {
+  id: string;
+  externalId?: string;
+  amount: number;
+  currency: string;
+  donorName?: string;
+  phone?: string;
+  paymentMethod?: string;
+  depositId: string;
+  paidAt?: string;
+  campaign?: string;
+  purpose?: string;
 };
 
 function statusBadge(status: string) {
@@ -156,6 +173,8 @@ export default function SuperAdminPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [withdrawing, setWithdrawing] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [refundable, setRefundable] = useState<RefundablePayment[]>([]);
+  const [refundingId, setRefundingId] = useState<string | null>(null);
 
   const [gateway, setGateway] = useState<"airtel_money" | "mtn_momo">("airtel_money");
   const [phone, setPhone] = useState("");
@@ -173,9 +192,10 @@ export default function SuperAdminPaymentsPage() {
     if (!user?.id && !user?.email) return;
     setLoading(true);
     try {
-      const [sumRes, wRes] = await Promise.all([
+      const [sumRes, wRes, rRes] = await Promise.all([
         fetch("/api/payments/summary", { cache: "no-store" }),
         fetch(`/api/payments/withdraw?${actorQs()}`, { cache: "no-store" }),
+        fetch(`/api/payments/refund?${actorQs()}`, { cache: "no-store" }),
       ]);
       const sumData = await sumRes.json();
       if (sumRes.ok) setSummary(sumData);
@@ -191,6 +211,11 @@ export default function SuperAdminPaymentsPage() {
         setWalletBalances(wData.wallet?.balances || []);
         setPawaReady(Boolean(wData.pawaPayReady));
         setCapabilities(wData.capabilities || null);
+      }
+
+      const rData = await rRes.json();
+      if (rRes.ok) {
+        setRefundable((rData.refundable || []) as RefundablePayment[]);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load payments");
@@ -258,6 +283,48 @@ export default function SuperAdminPaymentsPage() {
     }
   };
 
+  const submitRefund = async (payment: RefundablePayment) => {
+    if (!user) return;
+    if (!payment.phone) {
+      toast.error("This payment has no phone on file — cannot refund via mobile money");
+      return;
+    }
+    const ok = window.confirm(
+      `Refund UGX ${Number(payment.amount).toLocaleString()} to the ORIGINAL payer only?\n\n` +
+        `Number that paid: ${payment.phone}\n` +
+        `Donor: ${payment.donorName || "—"}\n\n` +
+        `Money will NOT go to the super-admin wallet. It returns only to ${payment.phone}.`
+    );
+    if (!ok) return;
+
+    setRefundingId(payment.id);
+    try {
+      const res = await fetch("/api/payments/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actorId: user.id,
+          actorEmail: user.email,
+          paymentId: payment.id,
+          depositId: payment.depositId,
+          amount: payment.amount,
+          note: `Refund to original payer ${payment.phone}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Refund failed");
+      toast.success(
+        data.message ||
+          `Refund sent to ${payment.phone} (the number that paid)`
+      );
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refund failed");
+    } finally {
+      setRefundingId(null);
+    }
+  };
+
   const t = summary?.totals;
   const available = balance?.available ?? 0;
 
@@ -267,16 +334,27 @@ export default function SuperAdminPaymentsPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <CreditCard className="h-6 w-6 text-emerald-600" />
-            Payments &amp; withdraw
+            Payments, refund &amp; withdraw
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Track donations and ticket sales, then withdraw available funds to your Airtel or
-            MTN wallet.
+            Track donations and tickets. Refund returns money only to the number that paid.
+            Withdraw (when PAYOUT is enabled) sends to your own wallet.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" loading={loading} onClick={() => void load()}>
             <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
+          <Button
+            variant="outline"
+            className="border-amber-500/50 text-amber-800 dark:text-amber-200"
+            onClick={() => {
+              document
+                .getElementById("refund-section")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            <Undo2 className="h-4 w-4" /> Refund payments
           </Button>
           <Button
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
@@ -285,6 +363,106 @@ export default function SuperAdminPaymentsPage() {
             <Banknote className="h-4 w-4" />
             {showWithdraw ? "Close withdraw" : "Withdraw money"}
           </Button>
+        </div>
+      </div>
+
+      {/* REFUND — only to original payer */}
+      <div
+        id="refund-section"
+        className="rounded-2xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-card to-card p-5 sm:p-6 space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <Undo2 className="h-5 w-5 text-amber-600" />
+              Refund to original payer
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Uses PawaPay <strong className="text-foreground">REFUND</strong> (enabled on your
+              account). Money always goes back to the <strong className="text-foreground">same
+              mobile number that paid</strong> — never to a different wallet. Super admin only.
+            </p>
+          </div>
+          <Badge className="bg-amber-600 text-white border-0 shrink-0">
+            {refundable.length} refundable
+          </Badge>
+        </div>
+
+        <div className="rounded-xl border border-amber-500/30 bg-background/80 p-3 text-xs text-muted-foreground flex gap-2">
+          <Phone className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+          <p>
+            Example: donor paid with <span className="font-mono text-foreground">0752…</span> →
+            refund lands on <span className="font-mono text-foreground">0752…</span> only. You
+            cannot redirect a refund to your own number.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-border/50 bg-card">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-left">
+              <tr>
+                <th className="px-4 py-2">Payment</th>
+                <th className="px-4 py-2">Paid by (phone)</th>
+                <th className="px-4 py-2">Amount</th>
+                <th className="px-4 py-2">Network</th>
+                <th className="px-4 py-2">When</th>
+                <th className="px-4 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {refundable.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                    No refundable live payments yet. Completed PawaPay charges with a deposit ID
+                    will appear here.
+                  </td>
+                </tr>
+              )}
+              {refundable.map((p) => (
+                <tr key={p.id} className="border-t border-border/40">
+                  <td className="px-4 py-3">
+                    <p className="font-medium">{p.donorName || "Supporter"}</p>
+                    <p className="font-mono text-[10px] text-muted-foreground">
+                      {p.externalId || p.id.slice(0, 8)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {p.campaign || p.purpose || "donation"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-mono text-sm font-semibold text-foreground">
+                      {p.phone || "—"}
+                    </p>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                      Refund goes only here
+                    </p>
+                  </td>
+                  <td className="px-4 py-3 font-semibold">
+                    {p.currency} {Number(p.amount).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {(p.paymentMethod || "—").replace(/_/g, " ")}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                    {p.paidAt ? new Date(p.paidAt).toLocaleString() : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-600/50 text-amber-800 dark:text-amber-200 hover:bg-amber-500/10"
+                      loading={refundingId === p.id}
+                      disabled={!p.phone || refundingId !== null}
+                      onClick={() => void submitRefund(p)}
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                      Refund to {p.phone ? "payer" : "…"}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -566,19 +744,20 @@ export default function SuperAdminPaymentsPage() {
         )}
       </div>
 
-      {/* Withdrawal history */}
+      {/* Withdrawal / refund history */}
       <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border/50 font-bold flex items-center gap-2">
           <ArrowDownToLine className="h-4 w-4 text-emerald-600" />
-          Withdrawal history
+          Withdraw &amp; refund history
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left">
               <tr>
                 <th className="px-4 py-2">When</th>
+                <th className="px-4 py-2">Type</th>
                 <th className="px-4 py-2">Amount</th>
-                <th className="px-4 py-2">To</th>
+                <th className="px-4 py-2">To number</th>
                 <th className="px-4 py-2">Network</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">By</th>
@@ -587,8 +766,8 @@ export default function SuperAdminPaymentsPage() {
             <tbody>
               {withdrawals.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                    No withdrawals yet — use the button above to send money to your wallet
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    No withdraw or refund records yet
                   </td>
                 </tr>
               )}
@@ -597,12 +776,27 @@ export default function SuperAdminPaymentsPage() {
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                     {new Date(w.completedAt || w.createdAt).toLocaleString()}
                   </td>
+                  <td className="px-4 py-3">
+                    {w.method === "refund" ? (
+                      <Badge variant="outline" className="text-amber-700 border-amber-500/40">
+                        Refund → payer
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-emerald-700 border-emerald-500/40">
+                        Withdraw
+                      </Badge>
+                    )}
+                  </td>
                   <td className="px-4 py-3 font-semibold">
                     {w.currency} {Number(w.amount).toLocaleString()}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">{w.phone || w.msisdn}</td>
                   <td className="px-4 py-3 text-xs">
-                    {w.gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo"}
+                    {w.gateway === "airtel_money"
+                      ? "Airtel Money"
+                      : w.gateway === "mtn_momo"
+                        ? "MTN MoMo"
+                        : "—"}
                   </td>
                   <td className="px-4 py-3">
                     {statusBadge(w.status)}
@@ -684,17 +878,21 @@ export default function SuperAdminPaymentsPage() {
                 <th className="px-4 py-2">Method</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">When</th>
+                <th className="px-4 py-2">Refund</th>
               </tr>
             </thead>
             <tbody>
               {(summary?.recentDonations || []).length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                     No donations yet — try /donate with Airtel or MTN
                   </td>
                 </tr>
               )}
-              {(summary?.recentDonations || []).map((d) => (
+              {(summary?.recentDonations || []).map((d) => {
+                const canRefund = refundable.some((r) => r.id === d.id);
+                const refundRow = refundable.find((r) => r.id === d.id);
+                return (
                 <tr key={d.id} className="border-t border-border/40">
                   <td className="px-4 py-3">
                     <p className="font-mono text-xs">{d.externalId || d.id.slice(0, 8)}</p>
@@ -724,8 +922,26 @@ export default function SuperAdminPaymentsPage() {
                       ? new Date(d.paidAt || d.createdAt || "").toLocaleString()
                       : "—"}
                   </td>
+                  <td className="px-4 py-3">
+                    {canRefund && refundRow ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-amber-700"
+                        loading={refundingId === d.id}
+                        disabled={refundingId !== null}
+                        onClick={() => void submitRefund(refundRow)}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                        Refund
+                      </Button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -822,13 +1038,16 @@ export default function SuperAdminPaymentsPage() {
 
       <div className="rounded-xl border border-border/40 bg-muted/30 p-4 text-xs text-muted-foreground space-y-1">
         <p>
-          <strong className="text-foreground">How withdraw works:</strong> User payments settle
-          into the PawaPay merchant wallet. Super admin withdraw sends a <em>payout</em> from that
-          wallet to your Airtel or MTN number.
+          <strong className="text-foreground">Refund:</strong> returns money to the{" "}
+          <em>same phone that paid</em> (PawaPay REFUND — already enabled on your account).
         </p>
         <p>
-          Callback: https://patriotic-app.onrender.com/api/payments/pawapay/callback (paste for
-          Deposits <strong>and</strong> Payouts in the PawaPay dashboard).
+          <strong className="text-foreground">Withdraw:</strong> sends merchant balance to{" "}
+          <em>your</em> Airtel/MTN number (needs PAYOUT enabled by PawaPay support).
+        </p>
+        <p>
+          Callback: https://patriotic-app.onrender.com/api/payments/pawapay/callback — paste for
+          Deposits, Payouts, <strong>and Refunds</strong> in the PawaPay dashboard.
         </p>
       </div>
     </div>
