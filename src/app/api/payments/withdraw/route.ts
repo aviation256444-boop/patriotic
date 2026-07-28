@@ -14,6 +14,11 @@ import {
 } from "@/lib/pawapay/payouts";
 import { shouldUsePawaPay, getPawaPayEnv } from "@/lib/pawapay/config";
 import { normalizePawaPayMsisdn } from "@/lib/pawapay/deposits";
+import {
+  getActiveConf,
+  gatewaySupportsPayout,
+  payoutNotConfiguredMessage,
+} from "@/lib/pawapay/active-conf";
 import { logActivity } from "@/lib/activity/log";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +57,7 @@ export async function GET(request: Request) {
     const balance = await getAvailableBalance();
     const withdrawals = listWithdrawals().slice(0, 50);
     const wallet = await getWalletBalances();
+    const activeConf = await getActiveConf();
 
     // Refresh pending/processing from PawaPay
     for (const w of withdrawals) {
@@ -90,6 +96,24 @@ export async function GET(request: Request) {
         },
         pawaPayReady: shouldUsePawaPay(),
         pawaPayEnv: getPawaPayEnv(),
+        /** Merchant product capabilities from PawaPay /active-conf */
+        capabilities: {
+          merchantName: activeConf.merchantName,
+          merchantId: activeConf.merchantId,
+          payoutsEnabled: activeConf.payoutsEnabled,
+          airtelPayout: activeConf.airtelPayout,
+          mtnPayout: activeConf.mtnPayout,
+          airtelDeposit: activeConf.airtelDeposit,
+          mtnDeposit: activeConf.mtnDeposit,
+          correspondents: activeConf.correspondents.map((c) => ({
+            correspondent: c.correspondent,
+            currency: c.currency,
+            operations: c.operations,
+          })),
+          howToEnablePayouts: activeConf.payoutsEnabled
+            ? null
+            : "Your PawaPay merchant only has DEPOSIT (collect money) and REFUND — not PAYOUT (send to your phone). Email support@pawapay.io or your account manager: enable PAYOUT for AIRTEL_OAPI_UGA and MTN_MOMO_UGA, country UGA, currency UGX.",
+        },
         withdrawals: refreshed,
       },
       { headers: { "Cache-Control": "no-store" } }
@@ -158,6 +182,26 @@ export async function POST(request: Request) {
           error:
             "Live withdrawals need PAWAPAY_API_TOKEN on the server. Funds sit in the PawaPay merchant wallet until payout succeeds.",
           code: "PAWAPAY_NOT_CONFIGURED",
+        },
+        { status: 503 }
+      );
+    }
+
+    const conf = await getActiveConf(true);
+    if (conf.ok && !gatewaySupportsPayout(conf, gateway)) {
+      return NextResponse.json(
+        {
+          error: payoutNotConfiguredMessage(conf, gateway),
+          code: "NO_PAYOUT_FLOW",
+          capabilities: {
+            merchantName: conf.merchantName,
+            airtelPayout: conf.airtelPayout,
+            mtnPayout: conf.mtnPayout,
+            operations: conf.correspondents.map((c) => ({
+              correspondent: c.correspondent,
+              operations: c.operations,
+            })),
+          },
         },
         { status: 503 }
       );

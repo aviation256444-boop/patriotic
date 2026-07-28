@@ -211,9 +211,10 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
       (json.message as string) ||
       text ||
       `PawaPay deposit failed (${res.status})`;
+    const { humanizePawaPayError } = await import("./active-conf");
     return {
       ok: false,
-      error: String(msg).slice(0, 400),
+      error: humanizePawaPayError(String(msg), input.gateway).slice(0, 500),
       depositId,
       msisdn,
       amount: amountStr,
@@ -231,9 +232,10 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
       reason?.rejectionMessage ||
       reason?.rejectionCode ||
       "Deposit rejected by PawaPay";
+    const { humanizePawaPayError } = await import("./active-conf");
     return {
       ok: false,
-      error: String(msg),
+      error: humanizePawaPayError(String(msg), input.gateway),
       depositId: String(json.depositId || depositId),
       status: "REJECTED",
       rejectionCode: reason?.rejectionCode,

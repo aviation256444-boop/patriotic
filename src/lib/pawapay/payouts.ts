@@ -19,6 +19,12 @@ import {
   formatPawaPayAmount,
   type PawaPayGateway,
 } from "./deposits";
+import {
+  getActiveConf,
+  gatewaySupportsPayout,
+  payoutNotConfiguredMessage,
+  humanizePawaPayError,
+} from "./active-conf";
 
 export type PayoutInput = {
   payoutId?: string;
@@ -110,6 +116,21 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     };
   }
 
+  // Fail early with a clear message if this merchant has no PAYOUT product
+  const conf = await getActiveConf();
+  if (conf.ok && !gatewaySupportsPayout(conf, input.gateway)) {
+    return {
+      ok: false,
+      error: payoutNotConfiguredMessage(conf, input.gateway),
+      rejectionCode: "NO_PAYOUT_FLOW",
+      payoutId,
+      msisdn,
+      amount: amountStr,
+      currency,
+      correspondent,
+    };
+  }
+
   const safeMeta = (input.metadata || [])
     .filter((m) => m.fieldName && m.fieldValue)
     .slice(0, 5)
@@ -165,7 +186,8 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
       `PawaPay payout failed (${res.status})`;
     return {
       ok: false,
-      error: String(msg).slice(0, 400),
+      error: humanizePawaPayError(String(msg), input.gateway).slice(0, 500),
+      rejectionCode: "HTTP_ERROR",
       payoutId,
       msisdn,
       amount: amountStr,
@@ -185,7 +207,7 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
       "Payout rejected by PawaPay";
     return {
       ok: false,
-      error: String(msg),
+      error: humanizePawaPayError(String(msg), input.gateway),
       payoutId: String(json.payoutId || payoutId),
       status: "REJECTED",
       rejectionCode: reason?.rejectionCode,
