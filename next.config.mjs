@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
   // Dev tunnels only (local). Production uses permanent host URL.
   allowedDevOrigins: ["*.trycloudflare.com"],
@@ -11,7 +10,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Allow larger image uploads via App Router route handlers
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
     serverActions: {

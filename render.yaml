@@ -8,7 +8,8 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: npm install --legacy-peer-deps --no-audit --no-fund && npm run build
+    # Must install devDeps too (TypeScript needed to compile Next app on Render)
+    buildCommand: npm install --legacy-peer-deps --include=dev --no-audit --no-fund && npm run build
     startCommand: npx next start -H 0.0.0.0 -p $PORT
     healthCheckPath: /
     envVars:
