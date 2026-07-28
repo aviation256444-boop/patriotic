@@ -123,10 +123,13 @@ export async function startEmailOtp(input: {
   save(db);
 
   const emailed = await sendOtpEmail(email, code);
+  // Always surface the code when email was not delivered (free hosts without Resend)
+  // Or when AUTH_SHOW_OTP=true. Never block the user from signing in.
   const showCode =
     !emailed ||
     process.env.AUTH_SHOW_OTP === "true" ||
-    process.env.NODE_ENV === "development";
+    process.env.AUTH_SHOW_OTP === "1" ||
+    process.env.NODE_ENV !== "production";
 
   logActivity({
     kind: "login",
@@ -141,10 +144,11 @@ export async function startEmailOtp(input: {
     isNewUser,
     message: emailed
       ? "We sent a 6-digit code to your email. Enter it to continue."
-      : showCode
-        ? "Enter the code below to continue (email delivery not configured)."
-        : "If this email can receive mail, a code was sent. Enter it to continue.",
+      : "Enter the 6-digit code shown below to continue.",
+    /** Shown in UI when mail wasn't sent (or AUTH_SHOW_OTP) */
     devCode: showCode ? code : undefined,
+    displayCode: showCode ? code : undefined,
+    emailed,
   };
 }
 

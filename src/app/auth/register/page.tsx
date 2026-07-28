@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
+import { EmailCodeAuth } from "@/components/auth/email-code-auth";
 import { useAuthStore } from "@/store/auth-store";
+import type { User } from "@/types";
 import { toast } from "sonner";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register, loading } = useAuthStore();
+  const { register, loading, setUser } = useAuthStore();
   const [form, setForm] = useState({
     fullName: "",
     email: "",
@@ -29,7 +31,7 @@ export default function RegisterPage() {
       .catch(() => setGoogleEnabled(false));
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handlePasswordRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.fullName.trim()) {
       toast.error("Enter your full name");
@@ -58,6 +60,14 @@ export default function RegisterPage() {
     }
   };
 
+  const handleEmailCodeSuccess = (user: User) => {
+    setUser(user);
+    toast.success("Welcome to PYU!", {
+      description: "Your account is ready.",
+    });
+    router.push("/dashboard");
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center pt-20 pb-12 px-4 gradient-hero mesh-bg">
       <motion.div
@@ -71,13 +81,13 @@ export default function RegisterPage() {
           </div>
           <h1 className="text-2xl font-bold">Create Account</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Register with your name, email, and password
+            Register with password, or use a one-time email code
           </p>
         </div>
 
         <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-5">
-          {/* PRIMARY: normal registration */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {/* 1) Normal registration */}
+          <form onSubmit={handlePasswordRegister} className="space-y-4">
             <Input
               label="Full Name"
               required
@@ -121,16 +131,35 @@ export default function RegisterPage() {
             </Button>
           </form>
 
-          {/* OPTIONAL: Google */}
+          {/* 2) Optional: email code auto-register */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-3 text-muted-foreground">
+                or register with email code only
+              </span>
+            </div>
+          </div>
+
+          <EmailCodeAuth
+            mode="register"
+            defaultEmail={form.email}
+            defaultName={form.fullName}
+            onSuccess={handleEmailCodeSuccess}
+          />
+
+          {/* 3) Optional Google */}
           {googleEnabled && (
             <>
-              <div className="relative my-1">
+              <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border" />
                 </div>
                 <div className="relative flex justify-center text-xs">
                   <span className="bg-card px-3 text-muted-foreground">
-                    or optional Google
+                    or Google
                   </span>
                 </div>
               </div>
