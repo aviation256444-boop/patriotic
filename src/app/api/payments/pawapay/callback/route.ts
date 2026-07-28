@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCollection, upsertItem } from "@/lib/cms/store";
 import { toCheckoutStatus } from "@/lib/pawapay/deposits";
+import { mapPayoutStatus } from "@/lib/pawapay/payouts";
+import { getWithdrawal, updateWithdrawal } from "@/lib/payments/withdrawals";
 import type { CmsDonation } from "@/lib/cms/types";
 
 export const dynamic = "force-dynamic";
@@ -15,20 +17,23 @@ type DonationRow = CmsDonation & {
 /**
  * PawaPay deposit / payout / refund callbacks.
  *
- * Paste this public URL into the sandbox dashboard for all 4 fields:
+ * Paste this public URL into the live dashboard for all fields:
  *   {NEXT_PUBLIC_APP_URL}/api/payments/pawapay/callback
  *
- * Supports v1 body: { depositId, status, ... }
- * Also accepts nested shapes / payoutId / refundId for future use.
+ * Supports v1 body: { depositId, status, ... } and payoutId for withdrawals.
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     console.info("[pawapay-callback]", JSON.stringify(body).slice(0, 800));
 
+    const payoutIdOnly = String(
+      body.payoutId ||
+        (body.payout as { payoutId?: string } | undefined)?.payoutId ||
+        ""
+    );
     const depositId = String(
       body.depositId ||
-        body.payoutId ||
         body.refundId ||
         (body.deposit as { depositId?: string } | undefined)?.depositId ||
         ""
@@ -36,12 +41,50 @@ export async function POST(request: Request) {
     const statusRaw = String(
       body.status ||
         (body.deposit as { status?: string } | undefined)?.status ||
+        (body.payout as { status?: string } | undefined)?.status ||
         ""
     );
 
-    if (!depositId) {
+    // ── Payout (super-admin withdraw) ────────────────────────────────
+    if (payoutIdOnly) {
+      const withdrawal = getWithdrawal(payoutIdOnly);
+      if (withdrawal) {
+        const mapped = mapPayoutStatus(statusRaw);
+        if (mapped === "SUCCESSFUL" && withdrawal.status !== "completed") {
+          updateWithdrawal(withdrawal.id, {
+            status: "completed",
+            providerStatus: statusRaw || "COMPLETED",
+          });
+        } else if (mapped === "FAILED" && withdrawal.status !== "failed") {
+          const failureReason = body.failureReason as
+            | { failureCode?: string; failureMessage?: string }
+            | undefined;
+          updateWithdrawal(withdrawal.id, {
+            status: "failed",
+            providerStatus: statusRaw || "FAILED",
+            failureReason:
+              failureReason?.failureMessage ||
+              failureReason?.failureCode ||
+              statusRaw,
+          });
+        }
+        return NextResponse.json({
+          received: true,
+          matched: true,
+          type: "payout",
+          payoutId: payoutIdOnly,
+          status: mapped || statusRaw,
+        });
+      }
+    }
+
+    if (!depositId && !payoutIdOnly) {
       // Still 200 so PawaPay does not hammer retries for malformed probes
       return NextResponse.json({ received: true, matched: false, error: "no id" });
+    }
+
+    if (!depositId) {
+      return NextResponse.json({ received: true, matched: false, type: "payout" });
     }
 
     const donations = (await getCollection("donations")) as DonationRow[];
