@@ -9,41 +9,38 @@ type Props = {
   mode?: "login" | "register";
   nextPath?: string;
   className?: string;
-  /** Large primary CTA */
   size?: "default" | "lg";
+  /**
+   * When true (recommended): hide setup error box.
+   * Parent should only render this button if Google is enabled.
+   */
+  quiet?: boolean;
 };
 
 /**
- * Big Google button → opens Google account picker on the device
- * (all signed-in Gmail accounts) then auto login / register.
+ * Optional Google button → account picker → auto login / register.
+ * Normal email/password login does not depend on this.
  */
 export function GoogleSignInButton({
   mode = "login",
   nextPath = "/dashboard",
   className,
-  size = "lg",
+  size = "default",
+  quiet = false,
 }: Props) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [hint, setHint] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/oauth/google", { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => {
-        setEnabled(Boolean(d.enabled));
-        setHint(String(d.hint || ""));
-      })
+      .then((d) => setEnabled(Boolean(d.enabled)))
       .catch(() => setEnabled(false));
   }, []);
 
   const startGoogle = useCallback(() => {
     if (enabled === false) {
-      toast.error("Google Client ID missing on the server", {
-        description:
-          "Render → patriotic-app → Environment → add NEXT_PUBLIC_GOOGLE_CLIENT_ID → Save → Manual Deploy → Clear build cache & deploy.",
-        duration: 10000,
-      });
+      toast.error("Google sign-in is optional and not enabled on this server yet.");
       return;
     }
     setBusy(true);
@@ -51,16 +48,25 @@ export function GoogleSignInButton({
       mode,
       next: nextPath.startsWith("/") ? nextPath : "/dashboard",
     });
-    // Full redirect → Google shows every account on this device
     window.location.href = `/api/auth/oauth/google/start?${qs.toString()}`;
   }, [enabled, mode, nextPath]);
+
+  // Quiet mode: if not configured, render nothing (no error spam)
+  if (quiet && enabled === false) return null;
+  if (quiet && enabled === null) {
+    return (
+      <div className="flex justify-center py-2">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className={cn("w-full space-y-2", className)}>
       <button
         type="button"
         onClick={startGoogle}
-        disabled={busy || enabled === null}
+        disabled={busy || enabled === null || enabled === false}
         className={cn(
           "w-full inline-flex items-center justify-center gap-3 rounded-2xl border-2 border-border bg-white text-gray-800 font-semibold shadow-sm",
           "hover:bg-gray-50 hover:border-gray-300 hover:shadow-md transition-all",
@@ -79,29 +85,10 @@ export function GoogleSignInButton({
           {mode === "register" ? "Sign up with Google" : "Continue with Google"}
         </span>
       </button>
-      <p className="text-[11px] text-center text-muted-foreground leading-snug">
-        Tap Google → pick any Gmail on this device → you are signed in or
-        registered automatically.
-      </p>
-      {enabled === false && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
-          <p className="font-semibold">Google is not connected on this server yet</p>
-          <ol className="list-decimal pl-4 space-y-0.5 text-left">
-            <li>Open Render → your service → <strong>Environment</strong></li>
-            <li>
-              Add key <code className="bg-black/10 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>
-            </li>
-            <li>Paste the Client ID from Google Cloud (ends with .apps.googleusercontent.com)</li>
-            <li>
-              Also set <code className="bg-black/10 px-1 rounded">NEXT_PUBLIC_APP_URL</code> ={" "}
-              <code className="bg-black/10 px-1 rounded">https://patriotic-app.onrender.com</code>
-            </li>
-            <li>
-              <strong>Manual Deploy</strong> → Clear build cache &amp; deploy (required for NEXT_PUBLIC_ vars)
-            </li>
-          </ol>
-          {hint && <p className="opacity-80 pt-1">Server says: {hint}</p>}
-        </div>
+      {enabled && (
+        <p className="text-[11px] text-center text-muted-foreground leading-snug">
+          Optional — pick a Gmail on this device to sign in or create an account.
+        </p>
       )}
     </div>
   );

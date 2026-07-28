@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -8,29 +8,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
-import { OAuthPanel } from "@/components/auth/oauth-panel";
 import { useAuthStore } from "@/store/auth-store";
-import type { User } from "@/types";
 import { toast } from "sonner";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register, loading, setUser } = useAuthStore();
+  const { register, loading } = useAuthStore();
   const [form, setForm] = useState({
     fullName: "",
     email: "",
     password: "",
     confirm: "",
   });
-  const [moreOptions, setMoreOptions] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
 
-  const handleOAuthSuccess = (user: User) => {
-    setUser(user);
-    toast.success("Welcome to PYU!", {
-      description: "Your account is ready.",
-    });
-    router.push("/dashboard");
-  };
+  useEffect(() => {
+    fetch("/api/auth/oauth/google", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setGoogleEnabled(Boolean(d.enabled)))
+      .catch(() => setGoogleEnabled(false));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +49,9 @@ export default function RegisterPage() {
     }
     try {
       await register(form.email.trim(), form.password, form.fullName.trim());
-      toast.success("Account created!");
+      toast.success("Account created!", {
+        description: "You can sign in anytime with this email and password.",
+      });
       router.push("/dashboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Registration failed");
@@ -70,75 +69,78 @@ export default function RegisterPage() {
           <div className="inline-flex justify-center mb-6">
             <BrandLogo href="/" size="lg" showText={false} />
           </div>
-          <h1 className="text-2xl font-bold">Join PYU</h1>
+          <h1 className="text-2xl font-bold">Create Account</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            One tap with Google — pick your Gmail and you&apos;re in
+            Register with your name, email, and password
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-6">
-          <GoogleSignInButton mode="register" nextPath="/dashboard" size="lg" />
+        <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-5">
+          {/* PRIMARY: normal registration */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input
+              label="Full Name"
+              required
+              value={form.fullName}
+              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+              autoComplete="name"
+            />
+            <Input
+              label="Email"
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              autoComplete="email"
+            />
+            <Input
+              label="Password"
+              type="password"
+              required
+              minLength={6}
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder="Min. 6 characters"
+              autoComplete="new-password"
+            />
+            <Input
+              label="Confirm Password"
+              type="password"
+              required
+              value={form.confirm}
+              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+              autoComplete="new-password"
+            />
+            <Button
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-500"
+              size="lg"
+              loading={loading}
+            >
+              Create Account
+            </Button>
+          </form>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <button
-                type="button"
-                className="bg-card px-3 text-muted-foreground hover:text-foreground"
-                onClick={() => setMoreOptions((v) => !v)}
-              >
-                {moreOptions ? "Hide other options" : "Other ways to join"}
-              </button>
-            </div>
-          </div>
-
-          {moreOptions && (
-            <div className="space-y-5">
-              <OAuthPanel mode="register" onSuccess={handleOAuthSuccess} />
-
-              <form
-                onSubmit={handleSubmit}
-                className="space-y-4 border-t border-border pt-4"
-              >
-                <p className="text-xs font-medium text-muted-foreground">
-                  Or register with password
-                </p>
-                <Input
-                  label="Full Name"
-                  required
-                  value={form.fullName}
-                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                />
-                <Input
-                  label="Email"
-                  type="email"
-                  required
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                />
-                <Input
-                  label="Password"
-                  type="password"
-                  required
-                  minLength={6}
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Min. 6 characters"
-                />
-                <Input
-                  label="Confirm Password"
-                  type="password"
-                  required
-                  value={form.confirm}
-                  onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-                />
-                <Button type="submit" className="w-full" loading={loading}>
-                  Create Account
-                </Button>
-              </form>
-            </div>
+          {/* OPTIONAL: Google */}
+          {googleEnabled && (
+            <>
+              <div className="relative my-1">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-card px-3 text-muted-foreground">
+                    or optional Google
+                  </span>
+                </div>
+              </div>
+              <GoogleSignInButton
+                mode="register"
+                nextPath="/dashboard"
+                size="default"
+                quiet
+              />
+            </>
           )}
 
           <p className="text-center text-sm text-muted-foreground">
