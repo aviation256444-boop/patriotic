@@ -1,7 +1,6 @@
 # Render permanent hosting — free web service (stable public URL)
-# After first deploy URL is typically:
-#   https://patriotic-youths-uganda.onrender.com
-# Set secrets in Dashboard → Environment (sync:false keys).
+# Public URL: https://patriotic-youths-uganda.onrender.com
+# Secrets (PAWAPAY_API_TOKEN, Square, etc.) — set in Dashboard → Environment
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
@@ -10,7 +9,7 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /
     envVars:
@@ -22,10 +21,8 @@ services:
         value: "false"
       - key: NEXT_PUBLIC_APP_NAME
         value: Patriotic Youths of Uganda
-      # Set after first deploy to your real Render URL:
-      # https://patriotic-youths-uganda.onrender.com
       - key: NEXT_PUBLIC_APP_URL
-        sync: false
+        value: https://patriotic-youths-uganda.onrender.com
       - key: NEXT_PUBLIC_PAWAPAY_ENABLED
         value: "true"
       - key: PAWAPAY_ENV
@@ -38,8 +35,6 @@ services:
         value: UGA
       - key: PAWAPAY_CURRENCY
         value: UGX
-      - key: PAWAPAY_API_TOKEN
-        sync: false
       - key: NEXT_PUBLIC_SQUARE_ENABLED
         value: "true"
       - key: SQUARE_ENV
@@ -50,14 +45,6 @@ services:
         value: USD
       - key: SQUARE_UGX_PER_USD
         value: "3700"
-      - key: NEXT_PUBLIC_SQUARE_APPLICATION_ID
-        sync: false
-      - key: NEXT_PUBLIC_SQUARE_LOCATION_ID
-        sync: false
-      - key: SQUARE_LOCATION_ID
-        sync: false
-      - key: SQUARE_ACCESS_TOKEN
-        sync: false
       - key: NEXT_PUBLIC_MOMO_ENABLED
         value: "true"
       - key: NEXT_PUBLIC_MOMO_CURRENCY
