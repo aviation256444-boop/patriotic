@@ -8,6 +8,7 @@ import { PageHero } from "@/components/shared/page-hero";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCmsCollection } from "@/hooks/use-cms";
+import { eventPriceLabel, resolveEventPricing } from "@/lib/events/pricing";
 import { formatDate, cn } from "@/lib/utils";
 import type { Event } from "@/types";
 
@@ -110,8 +111,12 @@ export default function EventsPage() {
                         </Badge>
                       </div>
                       <div className="absolute top-3 right-3">
-                        <Badge variant={event.isFree ? "success" : "secondary"}>
-                          {event.isFree ? "Free" : `UGX ${event.price?.toLocaleString()}`}
+                        <Badge
+                          variant={
+                            resolveEventPricing(event).isFree ? "success" : "secondary"
+                          }
+                        >
+                          {eventPriceLabel(event)}
                         </Badge>
                       </div>
                     </div>
@@ -122,15 +127,15 @@ export default function EventsPage() {
                       <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
                         <p className="flex items-center gap-2">
                           <Calendar className="h-3.5 w-3.5 text-emerald-500" />
-                          {formatDate(event.startDate)}
+                          {event.startDate ? formatDate(event.startDate) : "Date TBA"}
                         </p>
                         <p className="flex items-center gap-2">
                           <MapPin className="h-3.5 w-3.5 text-emerald-500" />
-                          {event.location}
+                          {event.location || "Location TBA"}
                         </p>
                         <p className="flex items-center gap-2">
                           <Users className="h-3.5 w-3.5 text-emerald-500" />
-                          {event.registered.toLocaleString()} registered
+                          {(Number(event.registered) || 0).toLocaleString()} registered
                         </p>
                       </div>
                       {event.status === "upcoming" && (

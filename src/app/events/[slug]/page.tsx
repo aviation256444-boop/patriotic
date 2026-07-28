@@ -14,6 +14,7 @@ import {
   QrCode,
   Minus,
   Plus,
+  Smartphone,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PaymentCheckout, type PaymentReceipt } from "@/components/payments/payment-checkout";
 import { useCmsCollection, findBySlug } from "@/hooks/use-cms";
+import { resolveEventPricing } from "@/lib/events/pricing";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth-store";
@@ -52,16 +54,19 @@ export default function EventDetailPage({
 
   const remaining = useMemo(() => {
     if (!event) return 0;
-    return Math.max(0, (event.capacity || 0) - (event.registered || 0));
+    const cap = Number(event.capacity) || 0;
+    const reg = Number(event.registered) || 0;
+    return Math.max(0, cap - reg);
   }, [event]);
 
-  const isFree = Boolean(event?.isFree) || !event?.price || event.price <= 0;
-  const unitPrice = isFree ? 0 : Number(event?.price) || 0;
+  // Price > 0 always means paid (shows Airtel/MTN/card) even if isFree was left checked
+  const { isFree, unitPrice } = resolveEventPricing(event);
   const total = unitPrice * seats;
+  const capacity = Number(event?.capacity) || 0;
 
   const issueTicket = useCallback(
     async (payment?: PaymentReceipt | null) => {
-      if (!event || !user) return;
+      if (!event || !user) return null;
       setIssuing(true);
       try {
         const res = await fetch("/api/events/tickets", {
@@ -90,14 +95,15 @@ export default function EventDetailPage({
         toast.success("Ticket issued!", {
           description: `Receipt ${data.ticket.receiptId}`,
         });
-        // Hard navigate so e-receipt is the source of truth after pay
         if (data.ticket?.id) {
           window.setTimeout(() => {
             window.location.href = `/tickets/${data.ticket.id}`;
           }, 400);
         }
+        return data.ticket as IssuedTicket;
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Ticket issue failed");
+        return null;
       } finally {
         setIssuing(false);
       }
@@ -120,6 +126,7 @@ export default function EventDetailPage({
       toast.error("Please sign in to book seats", {
         description: "Create an account or log in to get your QR ticket.",
       });
+      router.push(`/auth/login?next=/events/${event.slug}`);
       return;
     }
     if (remaining < seats) {
@@ -130,7 +137,13 @@ export default function EventDetailPage({
       void issueTicket(null);
       return;
     }
-    // Paid: open payment — ticket only after confirmed payment
+    if (total < 500) {
+      toast.error("Event price too low for mobile money", {
+        description: "Set price to at least UGX 500 per seat in the admin panel.",
+      });
+      return;
+    }
+    // Paid: open payment gateways (Airtel, MTN, card)
     setPayReady(true);
   };
 
@@ -139,7 +152,11 @@ export default function EventDetailPage({
       <section className="relative pt-28 pb-16 overflow-hidden">
         <div className="absolute inset-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={event.image} alt="" className="h-full w-full object-cover" />
+          <img
+            src={event.image || "/og-image.png"}
+            alt=""
+            className="h-full w-full object-cover"
+          />
           <div className="absolute inset-0 bg-black/70" />
         </div>
         <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -151,11 +168,17 @@ export default function EventDetailPage({
           </Link>
           <div className="flex flex-wrap gap-2 mb-4">
             <Badge variant="outline" className="bg-black/40 text-white border-white/20">
-              {event.type}
+              {event.type || "event"}
             </Badge>
             <Badge variant={isFree ? "success" : "secondary"}>
               {isFree ? "Free Entry" : `UGX ${unitPrice.toLocaleString()} / seat`}
             </Badge>
+            {!isFree && (
+              <Badge className="bg-[#ED1C24] text-white border-0">
+                <Smartphone className="h-3 w-3 mr-1" />
+                Airtel · MTN · Card
+              </Badge>
+            )}
           </div>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
@@ -180,14 +203,16 @@ export default function EventDetailPage({
                   <Calendar className="h-5 w-5 text-emerald-500" />
                   <div>
                     <p className="text-xs text-muted-foreground">Date</p>
-                    <p className="font-medium text-sm">{formatDate(event.startDate)}</p>
+                    <p className="font-medium text-sm">
+                      {event.startDate ? formatDate(event.startDate) : "TBA"}
+                    </p>
                   </div>
                 </div>
                 <div className="rounded-xl border border-border/50 p-4 flex items-center gap-3">
                   <MapPin className="h-5 w-5 text-emerald-500" />
                   <div>
                     <p className="text-xs text-muted-foreground">Location</p>
-                    <p className="font-medium text-sm">{event.location}</p>
+                    <p className="font-medium text-sm">{event.location || "TBA"}</p>
                   </div>
                 </div>
                 <div className="rounded-xl border border-border/50 p-4 flex items-center gap-3">
@@ -195,7 +220,7 @@ export default function EventDetailPage({
                   <div>
                     <p className="text-xs text-muted-foreground">Seats left</p>
                     <p className="font-medium text-sm">
-                      {remaining.toLocaleString()} / {event.capacity.toLocaleString()}
+                      {remaining.toLocaleString()} / {capacity.toLocaleString() || "—"}
                     </p>
                   </div>
                 </div>
@@ -203,12 +228,12 @@ export default function EventDetailPage({
                   <Ticket className="h-5 w-5 text-emerald-500" />
                   <div>
                     <p className="text-xs text-muted-foreground">Organizer</p>
-                    <p className="font-medium text-sm">{event.organizer}</p>
+                    <p className="font-medium text-sm">{event.organizer || "PYU"}</p>
                   </div>
                 </div>
               </div>
 
-              {event.agenda && (
+              {Array.isArray(event.agenda) && event.agenda.length > 0 && (
                 <div>
                   <h2 className="text-2xl font-bold mb-4">Agenda</h2>
                   <div className="space-y-3">
@@ -235,9 +260,20 @@ export default function EventDetailPage({
                   <>
                     <p className="text-sm text-muted-foreground">
                       {isFree
-                        ? "Free registration — QR ticket issued immediately."
+                        ? "Free registration — QR ticket issued immediately after you sign in."
                         : "Pay with Airtel Money, MTN MoMo, or card. Your ticket and e-receipt are issued only after payment is confirmed."}
                     </p>
+
+                    {!isFree && (
+                      <div className="rounded-xl border border-[#ED1C24]/30 bg-[#ED1C24]/5 p-3 text-xs space-y-1">
+                        <p className="font-semibold text-[#ED1C24] flex items-center gap-1.5">
+                          <Smartphone className="h-3.5 w-3.5" /> Payment options
+                        </p>
+                        <p className="text-muted-foreground">
+                          Airtel Money · MTN MoMo (PawaPay) · Visa / Mastercard
+                        </p>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between rounded-xl border border-border/50 p-3">
                       <span className="text-sm font-medium">Seats</span>
@@ -247,6 +283,7 @@ export default function EventDetailPage({
                           className="h-9 w-9 rounded-lg border border-border flex items-center justify-center hover:bg-muted"
                           onClick={() => setSeats((s) => Math.max(1, s - 1))}
                           aria-label="Fewer seats"
+                          disabled={payReady}
                         >
                           <Minus className="h-4 w-4" />
                         </button>
@@ -255,9 +292,12 @@ export default function EventDetailPage({
                           type="button"
                           className="h-9 w-9 rounded-lg border border-border flex items-center justify-center hover:bg-muted"
                           onClick={() =>
-                            setSeats((s) => Math.min(remaining || 1, Math.min(10, s + 1)))
+                            setSeats((s) =>
+                              Math.min(Math.max(remaining, 1), Math.min(10, s + 1))
+                            )
                           }
                           aria-label="More seats"
+                          disabled={payReady}
                         >
                           <Plus className="h-4 w-4" />
                         </button>
@@ -275,25 +315,47 @@ export default function EventDetailPage({
                       )}
                     </div>
 
+                    {!user && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-lg p-2">
+                        Sign in required to book and receive your QR ticket.
+                      </p>
+                    )}
+
                     {!payReady ? (
                       <Button
                         className="w-full"
                         size="lg"
                         loading={issuing}
                         onClick={handleRegister}
-                        disabled={event.status === "past" || remaining < 1}
+                        disabled={
+                          event.status === "past" ||
+                          event.status === "cancelled" ||
+                          remaining < 1
+                        }
                       >
                         <Ticket className="h-4 w-4" />
-                        {event.status === "past"
-                          ? "Event ended"
+                        {event.status === "past" || event.status === "cancelled"
+                          ? "Event not open"
                           : remaining < 1
                             ? "Sold out"
-                            : isFree
-                              ? "Register & get ticket"
-                              : "Continue to payment"}
+                            : !user
+                              ? "Sign in to book"
+                              : isFree
+                                ? "Register & get ticket"
+                                : "Continue to payment"}
                       </Button>
                     ) : (
                       <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">Choose payment method</p>
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground underline"
+                            onClick={() => setPayReady(false)}
+                          >
+                            Change seats
+                          </button>
+                        </div>
                         <PaymentCheckout
                           amount={total}
                           currency="UGX"
@@ -306,9 +368,9 @@ export default function EventDetailPage({
                             eventTitle: event.title,
                             seats,
                           }}
-                          successRedirect={`/events/${event.slug}`}
-                          onSuccess={(receipt) => {
-                            void issueTicket(receipt);
+                          disableAutoRedirect
+                          onSuccess={async (receipt) => {
+                            await issueTicket(receipt);
                           }}
                           onCancel={() => setPayReady(false)}
                         />

@@ -54,7 +54,12 @@ export type CheckoutProps = {
    * Payment must succeed first — never redirects early.
    */
   successRedirect?: string;
-  onSuccess?: (receipt: PaymentReceipt) => void;
+  /**
+   * When true, do not router.push after payment — parent handles navigation
+   * (e.g. event ticket issue → /tickets/[id]).
+   */
+  disableAutoRedirect?: boolean;
+  onSuccess?: (receipt: PaymentReceipt) => void | Promise<void>;
   onCancel?: () => void;
   className?: string;
 };
@@ -150,6 +155,7 @@ export function PaymentCheckout({
   isAnonymous = false,
   meta,
   successRedirect,
+  disableAutoRedirect = false,
   onSuccess,
   onCancel,
   className,
@@ -276,35 +282,51 @@ export function PaymentCheckout({
         /* ignore private mode */
       }
 
-      // Parent hooks (e.g. issue event ticket) before leave
-      onSuccess?.(receipt);
-
       setRedirecting(true);
       setPhase("processing");
       toast.success("Payment confirmed!", {
-        description: "Redirecting to your receipt…",
+        description: disableAutoRedirect
+          ? "Issuing your ticket…"
+          : "Redirecting to your receipt…",
       });
 
-      const params = new URLSearchParams({
-        ref: receipt.externalId,
-        paymentId: receipt.paymentId,
-        amount: String(receipt.amount),
-        currency: receipt.currency,
-        gateway: receipt.gateway,
-        purpose: purpose || "donation",
-      });
-      if (campaign) params.set("campaign", campaign);
-      if (receipt.phone) params.set("phone", receipt.phone);
+      void (async () => {
+        try {
+          // Await parent (event ticket issue) so we don't navigate away early
+          await onSuccess?.(receipt);
+        } catch (e) {
+          console.error(e);
+          toast.error(
+            e instanceof Error ? e.message : "Could not finish after payment"
+          );
+        }
 
-      // Short beat so user sees "payment confirmed" before leave
-      window.setTimeout(() => {
-        router.push(`${redirectPath}?${params.toString()}`);
-      }, 900);
+        if (disableAutoRedirect) {
+          // Parent navigates (e.g. to /tickets/[id])
+          return;
+        }
+
+        const params = new URLSearchParams({
+          ref: receipt.externalId,
+          paymentId: receipt.paymentId,
+          amount: String(receipt.amount),
+          currency: receipt.currency,
+          gateway: receipt.gateway,
+          purpose: purpose || "donation",
+        });
+        if (campaign) params.set("campaign", campaign);
+        if (receipt.phone) params.set("phone", receipt.phone);
+
+        window.setTimeout(() => {
+          router.push(`${redirectPath}?${params.toString()}`);
+        }, 500);
+      })();
     },
     [
       amount,
       campaign,
       currency,
+      disableAutoRedirect,
       gateway,
       onSuccess,
       phone,

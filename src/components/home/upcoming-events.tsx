@@ -53,8 +53,14 @@ export function UpcomingEvents() {
                         loading="lazy"
                       />
                       <div className="absolute top-3 right-3">
-                        <Badge variant={event.isFree ? "success" : "secondary"}>
-                          {event.isFree ? "Free" : `UGX ${event.price?.toLocaleString()}`}
+                        <Badge
+                          variant={
+                            Number(event.price) > 0 ? "secondary" : "success"
+                          }
+                        >
+                          {Number(event.price) > 0
+                            ? `UGX ${Number(event.price).toLocaleString()}`
+                            : "Free"}
                         </Badge>
                       </div>
                     </div>

@@ -150,6 +150,18 @@ export async function upsertItem(
       record.level = "national";
     }
 
+    // Events: any positive price is paid (payment options on public site)
+    if (collection === "events") {
+      const price = Math.max(0, Math.round(Number(record.price) || 0));
+      record.price = price;
+      record.capacity = Math.max(0, Math.round(Number(record.capacity) || 0)) || 100;
+      record.registered = Math.max(0, Math.round(Number(record.registered) || 0));
+      record.isFree = price <= 0;
+      if (price <= 0) record.price = 0;
+      if (!record.status) record.status = "upcoming";
+      if (!record.type) record.type = "physical";
+    }
+
     if (existingIdx >= 0) {
       list[existingIdx] = { ...list[existingIdx], ...record };
       pushAudit(db, actor, `Updated item in ${collection}`, collection, id);

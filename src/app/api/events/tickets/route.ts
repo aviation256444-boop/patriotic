@@ -8,6 +8,7 @@ import {
 } from "@/lib/tickets/store";
 import type { Event } from "@/types";
 import type { CmsDonation } from "@/lib/cms/types";
+import { resolveEventPricing } from "@/lib/events/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -90,8 +91,9 @@ export async function POST(request: Request) {
     }
 
     const sold = seatsSoldForEvent(event.id);
-    const remaining = Math.max(0, (event.capacity || 0) - sold);
-    if (remaining < seats) {
+    const capacity = Number(event.capacity) || 0;
+    const remaining = Math.max(0, capacity - sold);
+    if (capacity > 0 && remaining < seats) {
       return NextResponse.json(
         {
           error: `Only ${remaining} seat(s) left for this event`,
@@ -101,8 +103,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const isFree = Boolean(event.isFree) || !event.price || event.price <= 0;
-    const unitPrice = isFree ? 0 : Number(event.price) || 0;
+    // Price > 0 always paid — same rule as public event page
+    const { isFree, unitPrice } = resolveEventPricing(event);
     const expectedAmount = unitPrice * seats;
 
     let paymentMethod = isFree ? "free" : String(body.paymentMethod || body.gateway || "unknown");

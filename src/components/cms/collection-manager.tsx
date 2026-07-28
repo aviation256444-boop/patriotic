@@ -13,6 +13,7 @@ import {
   useDeleteItem,
 } from "@/hooks/use-cms";
 import { slugify } from "@/lib/utils";
+import { normalizeEventPayload } from "@/lib/events/pricing";
 import { toast } from "sonner";
 
 interface CollectionManagerProps {
@@ -135,6 +136,19 @@ export function CollectionManager({ collectionKey, schema: schemaProp }: Collect
         payload.level = "national";
       }
 
+      // Events: price > 0 ⇒ paid (payment options on public page)
+      if (collectionKey === "events") {
+        Object.assign(payload, normalizeEventPayload(payload));
+        if (!payload.image) {
+          toast.error("Add a cover image so the event looks complete on the site");
+          return;
+        }
+        if (!payload.slug) {
+          toast.error("URL slug is required");
+          return;
+        }
+      }
+
       await upsert.mutateAsync(payload);
       toast.success(isNew ? "Created — live on the website now" : "Saved — live on the website now", {
         description:
@@ -198,7 +212,25 @@ export function CollectionManager({ collectionKey, schema: schemaProp }: Collect
               key={field.key}
               field={field}
               value={editing[field.key]}
-              onChange={(v) => setEditing((prev) => (prev ? { ...prev, [field.key]: v } : prev))}
+              onChange={(v) =>
+                setEditing((prev) => {
+                  if (!prev) return prev;
+                  const next: Record<string, unknown> = { ...prev, [field.key]: v };
+                  // Live pricing UX for events
+                  if (collectionKey === "events") {
+                    if (field.key === "price" && Number(v) > 0) {
+                      next.isFree = false;
+                    }
+                    if (field.key === "isFree" && v === true) {
+                      next.price = 0;
+                    }
+                    if (field.key === "title" && isNew && !String(prev.slug || "").trim()) {
+                      next.slug = slugify(String(v || ""));
+                    }
+                  }
+                  return next;
+                })
+              }
             />
           ))}
         </div>
@@ -290,6 +322,16 @@ export function CollectionManager({ collectionKey, schema: schemaProp }: Collect
                   {item.slug != null && item.slug !== "" && (
                     <Badge variant="outline" className="text-[10px]">
                       /{String(item.slug)}
+                    </Badge>
+                  )}
+                  {collectionKey === "events" && (
+                    <Badge
+                      variant={Number(item.price) > 0 ? "secondary" : "success"}
+                      className="text-[10px]"
+                    >
+                      {Number(item.price) > 0
+                        ? `UGX ${Number(item.price).toLocaleString()} / seat`
+                        : "Free"}
                     </Badge>
                   )}
                   {item.status != null && item.status !== "" && (

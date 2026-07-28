@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,22 +11,37 @@ import { BrandLogo } from "@/components/shared/brand-logo";
 import { useAuthStore } from "@/store/auth-store";
 import { toast } from "sonner";
 
-export default function LoginPage() {
+function safeNextPath(raw: string | null): string | null {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
+  return raw;
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
   const { login, loginWithGoogle, loginWithFacebook, loginWithApple, loading } = useAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
+  const goAfterLogin = (user: { role?: string; fullName: string }) => {
+    toast.success(`Welcome back, ${user.fullName.split(" ")[0]}!`);
+    if (nextPath) {
+      router.push(nextPath);
+      return;
+    }
+    if (user.role === "super_admin") router.push("/super-admin");
+    else if (user.role === "admin" || user.role === "regional_admin" || user.role === "district_admin")
+      router.push("/admin");
+    else router.push("/dashboard");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const user = await login(email, password);
-      toast.success(`Welcome back, ${user.fullName.split(" ")[0]}!`);
-      if (user.role === "super_admin") router.push("/super-admin");
-      else if (user.role === "admin" || user.role === "regional_admin" || user.role === "district_admin")
-        router.push("/admin");
-      else router.push("/dashboard");
+      goAfterLogin(user);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Login failed");
     }
@@ -37,7 +52,7 @@ export default function LoginPage() {
       const fn = provider === "google" ? loginWithGoogle : provider === "facebook" ? loginWithFacebook : loginWithApple;
       const user = await fn();
       toast.success(`Welcome, ${user.fullName.split(" ")[0]}!`);
-      router.push("/dashboard");
+      router.push(nextPath || "/dashboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Social login failed");
     }
@@ -139,5 +154,19 @@ export default function LoginPage() {
         </div>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+          Loading…
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
