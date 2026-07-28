@@ -15,20 +15,24 @@ import {
   getAirtelEnv,
   getAirtelConfig,
 } from "@/lib/airtel/config";
+import { shouldUsePawaPay, getPawaPayEnv, getPawaPayCurrency } from "@/lib/pawapay/config";
+import { initiateDeposit } from "@/lib/pawapay/deposits";
 import type { PaymentGateway } from "@/lib/payments/types";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Unified checkout.
- * MTN MoMo + phone + Collections credentials → real RequestToPay for the donation amount.
- * Donor approves with MoMo PIN on their phone; app polls until SUCCESSFUL.
+ * Prefer PawaPay for MTN/Airtel when PAWAPAY_API_TOKEN is set (works on localhost via poll).
+ * Fallback: direct MTN MoMo Collections / Airtel Collection API.
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const amount = Number(body.amount);
-    const currency = String(body.currency || getMomoCurrency() || "UGX").toUpperCase();
+    const currency = String(
+      body.currency || getPawaPayCurrency() || getMomoCurrency() || "UGX"
+    ).toUpperCase();
     const gateway = String(body.gateway || "mtn_momo") as PaymentGateway;
     const purpose = String(body.purpose || "donation");
     const campaign = String(body.campaign || "general");
@@ -59,18 +63,72 @@ export async function POST(request: Request) {
     let msisdn: string | undefined;
     let chargedAmount: string | undefined;
     let chargedCurrency: string | undefined;
+    let provider = "demo";
     let providerMessage =
       "Demo checkout ready — complete the on-screen steps to finish payment.";
     let rtpError: string | undefined;
 
-    // MTN: charge the wallet for this exact amount via Collections RequestToPay
-    if (gateway === "mtn_momo" && phone && isMomoEnabled()) {
+    const isMobileMoney = gateway === "mtn_momo" || gateway === "airtel_money";
+    const usePawaPay = isMobileMoney && phone && shouldUsePawaPay();
+
+    // ── PawaPay (preferred for MTN + Airtel) — works on http://localhost:3000 ──
+    if (usePawaPay) {
+      const deposit = await initiateDeposit({
+        depositId: paymentId,
+        amount,
+        currency,
+        phone,
+        gateway: gateway as "mtn_momo" | "airtel_money",
+        statementDescription: "PYU Donation",
+        metadata: [
+          { fieldName: "externalId", fieldValue: externalId },
+          { fieldName: "purpose", fieldValue: purpose },
+          { fieldName: "campaign", fieldValue: campaign },
+        ],
+      });
+
+      if (!deposit.ok) {
+        return NextResponse.json(
+          {
+            error:
+              deposit.error ||
+              "PawaPay could not start the payment. Check the phone number and try again.",
+            code: "PAWAPAY_DEPOSIT_FAILED",
+            env: getPawaPayEnv(),
+            rejectionCode: deposit.rejectionCode,
+          },
+          { status: 502 }
+        );
+      }
+
+      providerRef = deposit.depositId || paymentId;
+      demoMode = Boolean(deposit.demo);
+      liveCharge = Boolean(deposit.live);
+      msisdn = deposit.msisdn;
+      chargedAmount = deposit.amount;
+      chargedCurrency = deposit.currency;
+      provider = "pawapay";
+
+      const brand = gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo";
+      if (liveCharge) {
+        providerMessage =
+          `PawaPay is requesting ${currency} ${amount.toLocaleString()} from ${msisdn || phone} via ${brand}. ` +
+          (getPawaPayEnv() === "sandbox"
+            ? "Sandbox: use a PawaPay test number (e.g. 0783456789 for MTN success)."
+            : "Enter your mobile money PIN on the phone prompt.");
+      } else {
+        providerMessage =
+          "PawaPay demo (no token) — use the on-screen PIN to simulate approval.";
+      }
+    } else if (gateway === "mtn_momo" && phone && isMomoEnabled()) {
+      // Fallback: direct MTN Collections
       if (!hasCollectionsCredentials()) {
         providerRef = `MOMO-DEMO-${Date.now()}`;
         demoMode = true;
         liveCharge = false;
+        provider = "momo";
         providerMessage =
-          "MoMo keys not configured — demo only. Add Collections keys to charge real wallets.";
+          "MoMo keys not configured — demo only. Add PAWAPAY_API_TOKEN or MoMo Collections keys.";
       } else {
         const rtp = await requestToPay({
           amount,
@@ -100,6 +158,7 @@ export async function POST(request: Request) {
         msisdn = rtp.msisdn;
         chargedAmount = rtp.amount;
         chargedCurrency = rtp.currency;
+        provider = "momo";
 
         if (liveCharge) {
           providerMessage =
@@ -112,16 +171,17 @@ export async function POST(request: Request) {
       }
     } else if (gateway === "mtn_momo") {
       providerRef = `MOMO-DEMO-${Date.now()}`;
+      provider = "momo";
       providerMessage =
         "MTN MoMo demo — enter PIN on the next screen to simulate a successful charge.";
     } else if (gateway === "airtel_money" && phone && isAirtelEnabled()) {
-      // Airtel Collection-API (Sandbox Collection-API's.json) — USSD push charge
       if (!hasAirtelCredentials()) {
         providerRef = `AIRTEL-DEMO-${Date.now()}`;
         demoMode = true;
         liveCharge = false;
+        provider = "airtel";
         providerMessage =
-          "Airtel keys not configured — demo only. Add AIRTEL_CLIENT_ID + AIRTEL_CLIENT_SECRET.";
+          "Airtel keys not configured — demo only. Add PAWAPAY_API_TOKEN or Airtel credentials.";
       } else {
         const airtel = await airtelRequestPayment({
           amount,
@@ -151,6 +211,7 @@ export async function POST(request: Request) {
         msisdn = airtel.msisdn;
         chargedAmount = airtel.amount;
         chargedCurrency = airtel.currency;
+        provider = "airtel";
 
         if (liveCharge) {
           providerMessage =
@@ -164,17 +225,20 @@ export async function POST(request: Request) {
     } else if (gateway === "airtel_money") {
       providerRef = `AIRTEL-DEMO-${Date.now()}`;
       demoMode = true;
+      provider = "airtel";
       providerMessage =
         "Airtel Money demo — enter PIN on the next screen to complete payment.";
     } else if (gateway === "card") {
       // Square Web Payments handles live card charge after session create
       providerRef = `CARD-${Date.now()}`;
       demoMode = true;
+      provider = "square";
       providerMessage =
         "Enter your card securely via Square. Payment is confirmed before the success page.";
     } else if (gateway === "bank") {
       providerRef = `BANK-DEMO-${Date.now()}`;
       demoMode = true;
+      provider = "bank";
       providerMessage = "Bank transfer recorded as pending until admin confirms.";
     }
 
@@ -200,9 +264,12 @@ export async function POST(request: Request) {
           chargedAmount,
           chargedCurrency,
           liveCharge,
+          provider,
         },
         momoReferenceId: providerRef || null,
         airtelTransactionId: gateway === "airtel_money" ? providerRef || null : null,
+        pawapayDepositId: provider === "pawapay" ? providerRef || null : null,
+        paymentProvider: provider,
         demoMode,
         liveCharge,
         createdAt: new Date().toISOString(),
@@ -221,6 +288,7 @@ export async function POST(request: Request) {
       status: "pending",
       demoMode,
       liveCharge,
+      provider,
       providerRef,
       msisdn,
       chargedAmount: chargedAmount || String(Math.round(amount)),
@@ -229,7 +297,15 @@ export async function POST(request: Request) {
       error: rtpError,
       momoEnv: getMomoEnv(),
       airtelEnv: getAirtelEnv(),
-      instructions: getInstructions(gateway, amount, currency, phone, liveCharge),
+      pawaPayEnv: getPawaPayEnv(),
+      instructions: getInstructions(
+        gateway,
+        amount,
+        currency,
+        phone,
+        liveCharge,
+        provider
+      ),
     });
   } catch (error) {
     console.error(error);
@@ -245,18 +321,22 @@ function getInstructions(
   amount: number,
   currency: string,
   phone: string,
-  liveCharge: boolean
+  liveCharge: boolean,
+  provider = "demo"
 ) {
   const amt = `${currency} ${amount.toLocaleString()}`;
+  const viaPawa = provider === "pawapay";
   switch (gateway) {
     case "mtn_momo":
       return {
-        title: "MTN Mobile Money",
+        title: viaPawa ? "MTN MoMo (PawaPay)" : "MTN Mobile Money",
         steps: liveCharge
           ? [
-              `MTN will charge ${amt} to ${phone}.`,
-              "Unlock your phone and enter your MoMo PIN on the MTN prompt (USSD / push).",
-              "Do not close this page — we wait for MTN to confirm the payment.",
+              viaPawa
+                ? `PawaPay will request ${amt} from ${phone} on MTN.`
+                : `MTN will charge ${amt} to ${phone}.`,
+              "Unlock your phone and enter your MoMo PIN on the prompt (USSD / push).",
+              "Do not close this page — we poll until payment is confirmed.",
             ]
           : [
               phone
@@ -270,12 +350,14 @@ function getInstructions(
       };
     case "airtel_money":
       return {
-        title: "Airtel Money",
+        title: viaPawa ? "Airtel Money (PawaPay)" : "Airtel Money",
         steps: liveCharge
           ? [
-              `Airtel will charge ${amt} to ${phone}.`,
+              viaPawa
+                ? `PawaPay will request ${amt} from ${phone} on Airtel.`
+                : `Airtel will charge ${amt} to ${phone}.`,
               "Unlock your phone and enter your Airtel Money PIN on the USSD prompt.",
-              "Do not close this page — we wait for Airtel to confirm the payment.",
+              "Do not close this page — we poll until payment is confirmed.",
             ]
           : [
               phone

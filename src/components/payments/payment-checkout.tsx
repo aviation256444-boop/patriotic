@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MomoPayWidget, type MomoInvoiceDetail } from "@/components/payments/momo-pay-widget";
 import { SquareCardForm } from "@/components/payments/square-card-form";
-import { isMomoEnabled } from "@/lib/momo/config";
 import type { PaymentGateway, PaymentPurpose } from "@/lib/payments/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -67,35 +66,37 @@ const GATEWAYS: {
   icon: React.ElementType;
   color: string;
   badge: string;
+  featured?: boolean;
 }[] = [
   {
-    id: "card",
-    name: "Visa / Mastercard",
-    desc: "Pay securely with Square · card form on the next step",
-    icon: CreditCard,
-    color: "border-indigo-500/50 bg-indigo-500/15",
-    badge: "Square · Recommended",
+    id: "airtel_money",
+    name: "Airtel Money",
+    desc: "PawaPay charges your Airtel wallet · PIN prompt on your phone",
+    icon: Smartphone,
+    color: "border-[#ED1C24] bg-[#ED1C24]/15",
+    badge: "Recommended · PawaPay",
+    featured: true,
   },
   {
     id: "mtn_momo",
     name: "MTN MoMo",
-    desc: "MTN charges your wallet · approve with PIN on phone",
+    desc: "PawaPay charges your MTN wallet · PIN prompt on your phone",
     icon: Smartphone,
     color: "border-[#FFCC00] bg-[#FFCC00]/10",
-    badge: "Mobile Money",
+    badge: "PawaPay",
   },
   {
-    id: "airtel_money",
-    name: "Airtel Money",
-    desc: "Pay from your Airtel Money wallet",
-    icon: Smartphone,
-    color: "border-[#ED1C24]/50 bg-[#ED1C24]/10",
-    badge: "Mobile Money",
+    id: "card",
+    name: "Visa / Mastercard",
+    desc: "Pay with card via Square (alternative)",
+    icon: CreditCard,
+    color: "border-indigo-500/40 bg-indigo-500/10",
+    badge: "Card",
   },
   {
     id: "bank",
     name: "Bank transfer",
-    desc: "Manual transfer · admin confirms",
+    desc: "Manual transfer · admin confirms later",
     icon: Building2,
     color: "border-emerald-500/40 bg-emerald-500/10",
     badge: "Bank",
@@ -154,7 +155,8 @@ export function PaymentCheckout({
   className,
 }: CheckoutProps) {
   const router = useRouter();
-  const [gateway, setGateway] = useState<PaymentGateway>("card");
+  /** Default: Airtel Money via PawaPay — direct phone PIN charge */
+  const [gateway, setGateway] = useState<PaymentGateway>("airtel_money");
   const [phase, setPhase] = useState<Phase>("select");
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
@@ -174,6 +176,8 @@ export function PaymentCheckout({
     paymentId: string;
     externalId: string;
     providerRef?: string;
+    /** pawapay | momo | airtel | square | bank | demo */
+    provider?: string;
     demoMode?: boolean;
     liveCharge?: boolean;
     message?: string;
@@ -185,6 +189,7 @@ export function PaymentCheckout({
       brandBg: string;
     };
   } | null>(null);
+  /** MTN QR widget off by default — prefer PawaPay phone charge */
   const [useWidget, setUseWidget] = useState(false);
   const [squareCfg, setSquareCfg] = useState<{
     enabled: boolean;
@@ -317,15 +322,24 @@ export function PaymentCheckout({
           paymentId: s.paymentId,
           referenceId: s.providerRef || "",
           transactionId: s.providerRef || "",
+          depositId: s.providerRef || s.paymentId,
           externalId: s.externalId,
         });
-        const path =
-          gw === "airtel_money"
+        const viaPawaPay = s.provider === "pawapay";
+        const path = viaPawaPay
+          ? `/api/payments/pawapay/status?${q}`
+          : gw === "airtel_money"
             ? `/api/payments/airtel/status?${q}`
             : `/api/payments/momo/status?${q}`;
         const res = await fetch(path, { cache: "no-store" });
         const data = await res.json();
-        const brandName = gw === "airtel_money" ? "Airtel Money" : "MTN MoMo";
+        const brandName = viaPawaPay
+          ? gw === "airtel_money"
+            ? "Airtel Money (PawaPay)"
+            : "MTN MoMo (PawaPay)"
+          : gw === "airtel_money"
+            ? "Airtel Money"
+            : "MTN MoMo";
         if (!res.ok) {
           setAwaitMsg(data.error || `Checking with ${brandName}…`);
           return;
@@ -366,8 +380,8 @@ export function PaymentCheckout({
       setPhase("awaiting");
       setAwaitMsg(
         gw === "airtel_money"
-          ? "Payment request sent. Check your phone for the Airtel Money prompt…"
-          : "Payment request sent. Check your phone for the MTN prompt…"
+          ? "PawaPay sent the charge. Check your phone for the Airtel Money PIN prompt…"
+          : "PawaPay sent the charge. Check your phone for the MTN MoMo PIN prompt…"
       );
       void pollLiveStatus(s, gw);
 
@@ -444,6 +458,7 @@ export function PaymentCheckout({
         paymentId: data.paymentId as string,
         externalId: data.externalId as string,
         providerRef: data.providerRef as string | undefined,
+        provider: (data.provider as string | undefined) || undefined,
         demoMode: Boolean(data.demoMode),
         liveCharge: Boolean(data.liveCharge),
         message: data.message as string | undefined,
@@ -463,10 +478,11 @@ export function PaymentCheckout({
         !useWidget &&
         nextSession.liveCharge
       ) {
-        // Live: provider charges amount → donor PIN on phone → we poll → then success page
-        const brand = gateway === "airtel_money" ? "Airtel" : "MTN";
-        toast.success(`Charge request sent to ${brand}`, {
-          description: `Approve ${currency} ${amount.toLocaleString()} on your phone`,
+        // Live: PawaPay / MTN / Airtel → donor PIN on phone → we poll → success
+        const brand =
+          gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo";
+        toast.success(`Charge sent to your ${brand} phone`, {
+          description: `Approve ${currency} ${amount.toLocaleString()} with your PIN on the handset`,
         });
         startLivePolling(nextSession, gateway);
       } else if (isMobileMoney && !useWidget) {
@@ -733,16 +749,37 @@ export function PaymentCheckout({
 
   return (
     <div className={cn("space-y-6", className)}>
-      <div className="rounded-2xl bg-gradient-to-r from-[#004F71] to-emerald-800 text-white p-5 flex flex-wrap items-center justify-between gap-3">
+      <div
+        className={cn(
+          "rounded-2xl text-white p-5 flex flex-wrap items-center justify-between gap-3",
+          gateway === "airtel_money"
+            ? "bg-gradient-to-r from-[#ED1C24] to-[#9b0f16]"
+            : gateway === "mtn_momo"
+              ? "bg-gradient-to-r from-[#004F71] to-emerald-800"
+              : "bg-gradient-to-r from-emerald-800 to-[#004F71]"
+        )}
+      >
         <div>
-          <p className="text-xs uppercase tracking-wider text-white/70">Amount MTN will charge</p>
+          <p className="text-xs uppercase tracking-wider text-white/70 flex items-center gap-1.5">
+            <SmartphoneNfc className="h-3.5 w-3.5" />
+            {isMobileMoney
+              ? gateway === "airtel_money"
+                ? "Airtel Money · charged on your phone"
+                : "MTN MoMo · charged on your phone"
+              : "Amount due"}
+          </p>
           <p className="text-3xl font-black">
             {currency} {amount.toLocaleString()}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-white/80">
-          <Lock className="h-4 w-4" />
-          <span>Secured by MTN MoMo Collections</span>
+        <div className="flex flex-col items-end gap-1 text-xs text-white/90">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 font-semibold">
+            <Lock className="h-3.5 w-3.5" />
+            Powered by PawaPay
+          </span>
+          {isMobileMoney && (
+            <span className="text-white/70">Enter PIN on phone to confirm</span>
+          )}
         </div>
       </div>
 
@@ -751,9 +788,9 @@ export function PaymentCheckout({
         (phase === "select" || phase === "phone" || phase === "awaiting" || phase === "pin") && (
           <ol className="flex items-center gap-2 text-xs sm:text-sm">
             {[
-              { id: "select", label: "Method" },
-              { id: "phone", label: "Phone" },
-              { id: "awaiting", label: "Approve" },
+              { id: "select", label: "Network" },
+              { id: "phone", label: "Your number" },
+              { id: "awaiting", label: "PIN on phone" },
             ].map((s, i) => {
               const order = ["select", "phone", "awaiting"] as const;
               const mapped =
@@ -766,13 +803,17 @@ export function PaymentCheckout({
               const mine = i;
               const done = current > mine;
               const active = current === mine;
+              const activeRing =
+                gateway === "airtel_money"
+                  ? "bg-[#ED1C24] text-white ring-2 ring-[#ED1C24]/40"
+                  : "bg-[#004F71] text-white ring-2 ring-[#FFCC00]";
               return (
                 <li key={s.id} className="flex items-center gap-2 flex-1">
                   <span
                     className={cn(
                       "flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold shrink-0",
                       done && "bg-emerald-500 text-white",
-                      active && "bg-[#004F71] text-white ring-2 ring-[#FFCC00]",
+                      active && activeRing,
                       !done && !active && "bg-muted text-muted-foreground"
                     )}
                   >
@@ -795,8 +836,20 @@ export function PaymentCheckout({
 
       {phase === "select" && (
         <>
+          <div className="rounded-2xl border border-[#ED1C24]/30 bg-[#ED1C24]/5 p-4 flex gap-3">
+            <Shield className="h-5 w-5 text-[#ED1C24] shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-foreground">Pay from your phone with PawaPay</p>
+              <p className="text-muted-foreground mt-0.5">
+                Choose <strong className="text-[#ED1C24]">Airtel Money</strong> (recommended) or
+                MTN MoMo. We send a charge request to your number — approve with your PIN on the
+                phone. No card details needed.
+              </p>
+            </div>
+          </div>
+
           <div>
-            <h3 className="font-bold mb-3">Choose payment method</h3>
+            <h3 className="font-bold mb-3">Choose how to pay</h3>
             <div className="grid sm:grid-cols-2 gap-3">
               {GATEWAYS.map((g) => (
                 <button
@@ -804,18 +857,36 @@ export function PaymentCheckout({
                   type="button"
                   onClick={() => {
                     setGateway(g.id);
-                    if (g.id !== "mtn_momo") setUseWidget(false);
+                    setUseWidget(false);
                   }}
                   className={cn(
-                    "rounded-2xl border-2 p-4 text-left transition-all",
+                    "rounded-2xl border-2 p-4 text-left transition-all relative",
                     gateway === g.id
                       ? g.color + " border-2 shadow-md scale-[1.02]"
-                      : "border-border/50 hover:border-border"
+                      : "border-border/50 hover:border-border",
+                    g.featured && gateway !== g.id && "ring-1 ring-[#ED1C24]/20"
                   )}
                 >
+                  {g.featured && (
+                    <span className="absolute -top-2 right-3 rounded-full bg-[#ED1C24] text-white text-[10px] font-bold px-2 py-0.5">
+                      Best for phone
+                    </span>
+                  )}
                   <div className="flex items-start justify-between gap-2">
-                    <g.icon className="h-6 w-6 shrink-0" />
-                    <Badge variant="secondary" className="text-[10px]">
+                    <g.icon
+                      className={cn(
+                        "h-6 w-6 shrink-0",
+                        g.id === "airtel_money" && "text-[#ED1C24]"
+                      )}
+                    />
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "text-[10px]",
+                        g.id === "airtel_money" &&
+                          "bg-[#ED1C24]/15 text-[#ED1C24] border-0"
+                      )}
+                    >
                       {g.badge}
                     </Badge>
                   </div>
@@ -826,34 +897,30 @@ export function PaymentCheckout({
             </div>
           </div>
 
-          {gateway === "mtn_momo" && isMomoEnabled() && (
-            <label className="flex items-start gap-2 text-sm cursor-pointer rounded-xl border border-border/50 p-3 bg-muted/30">
-              <input
-                type="checkbox"
-                checked={useWidget}
-                onChange={(e) => setUseWidget(e.target.checked)}
-                className="rounded border-border mt-0.5"
-              />
-              <span>
-                <span className="font-medium">Use MTN MoMo Pay QR / button instead</span>
-                <span className="block text-xs text-muted-foreground mt-0.5">
-                  Default: enter phone → MTN sends PIN prompt on that phone → we charge the donation amount
-                </span>
-              </span>
-            </label>
-          )}
-
           <Button
             type="button"
             size="lg"
-            className="w-full bg-[#004F71] hover:bg-[#003555] text-white"
+            className={cn(
+              "w-full text-white font-bold",
+              gateway === "airtel_money" && "bg-[#ED1C24] hover:bg-[#c41620]",
+              gateway === "mtn_momo" && "bg-[#004F71] hover:bg-[#003555]",
+              !isMobileMoney && "bg-emerald-600 hover:bg-emerald-500"
+            )}
             loading={loading}
             onClick={goNextFromSelect}
           >
-            {isMobileMoney && !useWidget
-              ? "Continue — enter phone number"
-              : `Continue to pay ${currency} ${amount.toLocaleString()}`}
+            {gateway === "airtel_money"
+              ? `Pay with Airtel Money · ${currency} ${amount.toLocaleString()}`
+              : gateway === "mtn_momo"
+                ? `Pay with MTN MoMo · ${currency} ${amount.toLocaleString()}`
+                : `Continue to pay ${currency} ${amount.toLocaleString()}`}
           </Button>
+          {isMobileMoney && (
+            <p className="text-center text-xs text-muted-foreground">
+              Next: enter your {gateway === "airtel_money" ? "Airtel" : "MTN"} number → PIN prompt
+              on that phone
+            </p>
+          )}
           {onCancel && (
             <Button type="button" variant="ghost" className="w-full" onClick={onCancel}>
               Cancel
@@ -866,26 +933,46 @@ export function PaymentCheckout({
         <div className="space-y-5">
           <div
             className="rounded-2xl p-5 text-white"
-            style={{ background: `linear-gradient(135deg, ${brand.bg}, ${brand.bg}dd)` }}
+            style={{
+              background:
+                gateway === "airtel_money"
+                  ? "linear-gradient(135deg, #ED1C24, #7f0e14)"
+                  : `linear-gradient(135deg, ${brand.bg}, ${brand.bg}dd)`,
+            }}
           >
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-90">
-              <Phone className="h-4 w-4" />
-              {brand.name}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-90">
+                <Phone className="h-4 w-4" />
+                {brand.name} · PawaPay
+              </div>
+              <Badge className="bg-white/20 text-white border-0 text-[10px]">
+                Direct phone charge
+              </Badge>
             </div>
             <p className="text-2xl font-black mt-2">
               {currency} {amount.toLocaleString()}
             </p>
             <p className="text-sm text-white/90 mt-2">
-              Enter the MoMo number to charge. MTN will ask for the wallet PIN on that phone to
-              complete the donation.
+              {gateway === "airtel_money"
+                ? "Enter your Airtel Money number. PawaPay will push a payment request to that phone — approve with your Airtel Money PIN."
+                : "Enter your MTN MoMo number. PawaPay will push a payment request to that phone — approve with your MoMo PIN."}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
+          <div
+            className={cn(
+              "rounded-2xl border-2 bg-card p-5 space-y-4",
+              gateway === "airtel_money" ? "border-[#ED1C24]/40" : "border-[#FFCC00]/40"
+            )}
+          >
             <Input
               id="momo-phone"
-              label="MTN MoMo number to charge"
-              placeholder="0772 123 456"
+              label={
+                gateway === "airtel_money"
+                  ? "Airtel Money number to charge"
+                  : "MTN MoMo number to charge"
+              }
+              placeholder={gateway === "airtel_money" ? "0752 123 456" : "0772 123 456"}
               inputMode="tel"
               autoComplete="tel"
               autoFocus
@@ -896,9 +983,16 @@ export function PaymentCheckout({
               }}
               required
             />
-            <p className="text-xs text-muted-foreground">
-              Exact amount charged: <strong>{currency} {amount.toLocaleString()}</strong>
-            </p>
+            <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+              <li>
+                Exact amount:{" "}
+                <strong className="text-foreground">
+                  {currency} {amount.toLocaleString()}
+                </strong>
+              </li>
+              <li>You will get a PIN prompt on this phone (not in the browser)</li>
+              <li>Keep this page open until payment is confirmed</li>
+            </ul>
             <Button
               type="button"
               size="lg"
@@ -910,7 +1004,9 @@ export function PaymentCheckout({
               loading={loading}
               onClick={() => void startCheckout()}
             >
-              Charge {currency} {amount.toLocaleString()} →
+              {gateway === "airtel_money"
+                ? `Charge Airtel · ${currency} ${amount.toLocaleString()}`
+                : `Charge MTN · ${currency} ${amount.toLocaleString()}`}
             </Button>
             <Button type="button" variant="ghost" className="w-full" onClick={() => setPhase("select")}>
               ← Change payment method
@@ -919,7 +1015,7 @@ export function PaymentCheckout({
         </div>
       )}
 
-      {/* Live: wait for PIN on phone + MTN confirmation */}
+      {/* Live: wait for PIN on phone (PawaPay → Airtel / MTN) */}
       {phase === "awaiting" && session && (
         <div className="space-y-5">
           <div
@@ -936,21 +1032,24 @@ export function PaymentCheckout({
               style={{ color: gateway === "airtel_money" ? "#fff" : "#FFCC00" }}
             >
               <SmartphoneNfc className="h-4 w-4" />
-              Approve on your phone
+              {gateway === "airtel_money"
+                ? "Airtel Money · approve on phone"
+                : "MTN MoMo · approve on phone"}
             </div>
             <p className="text-3xl font-black mt-3">
               {currency} {amount.toLocaleString()}
             </p>
             <p className="text-sm text-white/90 mt-2">
-              {gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo"} is requesting payment from{" "}
+              PawaPay sent a charge to{" "}
               <span className="font-semibold text-white">
                 {formatUgPhoneDisplay(session.msisdn || phone)}
               </span>
+              {gateway === "airtel_money" ? " (Airtel Money)" : " (MTN MoMo)"}
             </p>
             <ol className="mt-4 space-y-2 text-sm text-white/95 list-decimal list-inside">
-              <li>Unlock the phone for that mobile money number</li>
+              <li>Unlock the phone for that number</li>
               <li>
-                Open the {gateway === "airtel_money" ? "Airtel" : "MTN"} USSD / push prompt
+                Open the {gateway === "airtel_money" ? "Airtel Money" : "MTN"} push / USSD prompt
               </li>
               <li>
                 Enter your{" "}
@@ -1242,7 +1341,7 @@ export function PaymentCheckout({
   );
 }
 
-function gatewayLabel(g: string) {
+function gatewayLabel(g: string): string {
   switch (g) {
     case "mtn_momo":
       return "MTN MoMo";

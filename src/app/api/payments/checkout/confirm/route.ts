@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCollection, upsertItem } from "@/lib/cms/store";
 import { getRequestToPayStatus } from "@/lib/momo/collections";
 import { getAirtelPaymentStatus } from "@/lib/airtel/collections";
+import { getDepositStatus, toCheckoutStatus } from "@/lib/pawapay/deposits";
 import type { CmsDonation } from "@/lib/cms/types";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 type DonationRow = CmsDonation & {
   momoReferenceId?: string;
   airtelTransactionId?: string;
+  pawapayDepositId?: string | null;
+  paymentProvider?: string;
   externalId?: string;
   paymentMethod?: string;
   demoMode?: boolean;
@@ -44,17 +47,115 @@ export async function POST(request: Request) {
     }
 
     const gateway = donation.paymentMethod || body.gateway || "mtn_momo";
+    const provider =
+      donation.paymentProvider ||
+      (donation.meta && typeof donation.meta === "object"
+        ? String((donation.meta as { provider?: string }).provider || "")
+        : "") ||
+      "";
     const ref =
       providerRef ||
+      donation.pawapayDepositId ||
       donation.airtelTransactionId ||
       donation.momoReferenceId ||
       "";
+    const isPawaPay =
+      provider === "pawapay" ||
+      Boolean(donation.pawapayDepositId) ||
+      (Boolean(donation.liveCharge) &&
+        Boolean(ref) &&
+        /^[0-9a-f-]{36}$/i.test(String(ref)) &&
+        (gateway === "mtn_momo" || gateway === "airtel_money") &&
+        !String(ref).startsWith("MOMO-DEMO") &&
+        !String(ref).startsWith("AIRTEL-DEMO") &&
+        provider !== "momo" &&
+        provider !== "airtel");
+
+    // ── Live PawaPay: poll deposit status (works on localhost) ───────
+    if (
+      isPawaPay &&
+      (body.poll || donation.liveCharge) &&
+      ref &&
+      !donation.demoMode
+    ) {
+      const poll = await getDepositStatus(ref);
+      const mapped = toCheckoutStatus(poll.status);
+
+      if (mapped === "SUCCESSFUL") {
+        const mmoRef =
+          poll.correspondentIds &&
+          Object.values(poll.correspondentIds).find(Boolean);
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "completed",
+            pawapayDepositId: ref,
+            momoReferenceId: ref,
+            paymentReference: mmoRef || ref,
+            financialTransactionId: mmoRef || ref,
+            paidAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: true,
+          status: "completed",
+          live: true,
+          provider: "pawapay",
+          pawaPayStatus: poll.status,
+          donation: updated,
+          receipt: receipt(donation, gateway, "completed"),
+        });
+      }
+
+      if (mapped === "FAILED") {
+        const updated = await upsertItem(
+          "donations",
+          {
+            ...donation,
+            id: donation.id,
+            status: "failed",
+            pawapayDepositId: ref,
+            failureReason: poll.reason || poll.error || "FAILED",
+            updatedAt: new Date().toISOString(),
+          },
+          "checkout-confirm"
+        );
+        return NextResponse.json({
+          success: false,
+          status: "failed",
+          live: true,
+          provider: "pawapay",
+          pawaPayStatus: poll.status,
+          reason: poll.reason || poll.error,
+          donation: updated,
+          error: poll.reason || "Payment was declined or failed on PawaPay",
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        status: "pending",
+        live: true,
+        provider: "pawapay",
+        pawaPayStatus: poll.status,
+        message:
+          "Waiting for you to approve on your phone with your mobile money PIN…",
+        error: poll.error,
+      });
+    }
+
     const isLiveMomo =
+      !isPawaPay &&
       gateway === "mtn_momo" &&
       Boolean(donation.liveCharge) &&
       Boolean(ref) &&
       !String(ref).startsWith("MOMO-DEMO");
     const isLiveAirtel =
+      !isPawaPay &&
       gateway === "airtel_money" &&
       Boolean(donation.liveCharge) &&
       Boolean(ref) &&
@@ -63,7 +164,7 @@ export async function POST(request: Request) {
     // ── Live Airtel: Airtel is source of truth ────────────────────────
     if (
       isLiveAirtel ||
-      (gateway === "airtel_money" && body.poll && ref && !donation.demoMode)
+      (gateway === "airtel_money" && body.poll && ref && !donation.demoMode && !isPawaPay)
     ) {
       const poll = await getAirtelPaymentStatus(ref);
 

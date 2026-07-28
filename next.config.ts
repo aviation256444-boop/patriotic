@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Dev tunnels only (local). Production uses permanent host URL.
+  allowedDevOrigins: ["*.trycloudflare.com"],
   // Allow larger image uploads via App Router route handlers
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],

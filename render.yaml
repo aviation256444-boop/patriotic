@@ -1,5 +1,7 @@
-# Render Blueprint — keep this minimal so sync succeeds.
-# Add secrets later in the Dashboard → Environment.
+# Render permanent hosting — free web service (stable public URL)
+# After first deploy URL is typically:
+#   https://patriotic-youths-uganda.onrender.com
+# Set secrets in Dashboard → Environment (sync:false keys).
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
@@ -17,9 +19,27 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_DEMO_MODE
-        value: "true"
+        value: "false"
       - key: NEXT_PUBLIC_APP_NAME
         value: Patriotic Youths of Uganda
+      # Set after first deploy to your real Render URL:
+      # https://patriotic-youths-uganda.onrender.com
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_PAWAPAY_ENABLED
+        value: "true"
+      - key: PAWAPAY_ENV
+        value: production
+      - key: NEXT_PUBLIC_PAWAPAY_ENV
+        value: production
+      - key: PAWAPAY_BASE_URL
+        value: https://api.pawapay.io
+      - key: PAWAPAY_COUNTRY
+        value: UGA
+      - key: PAWAPAY_CURRENCY
+        value: UGX
+      - key: PAWAPAY_API_TOKEN
+        sync: false
       - key: NEXT_PUBLIC_SQUARE_ENABLED
         value: "true"
       - key: SQUARE_ENV
@@ -30,9 +50,19 @@ services:
         value: USD
       - key: SQUARE_UGX_PER_USD
         value: "3700"
+      - key: NEXT_PUBLIC_SQUARE_APPLICATION_ID
+        sync: false
+      - key: NEXT_PUBLIC_SQUARE_LOCATION_ID
+        sync: false
+      - key: SQUARE_LOCATION_ID
+        sync: false
+      - key: SQUARE_ACCESS_TOKEN
+        sync: false
       - key: NEXT_PUBLIC_MOMO_ENABLED
         value: "true"
       - key: NEXT_PUBLIC_MOMO_CURRENCY
         value: UGX
+      - key: NEXT_PUBLIC_AIRTEL_ENABLED
+        value: "true"
       - key: AUTH_SECRET
         generateValue: true

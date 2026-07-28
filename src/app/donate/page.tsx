@@ -37,18 +37,26 @@ export default function DonatePage() {
   return (
     <>
       <PageHero
-        badge="Donate · Square cards + MoMo"
+        badge="Donate · Airtel & MTN via PawaPay"
         title="Fuel the Movement"
-        description="Pay with Visa or Mastercard via Square (default), or MTN / Airtel. You only leave this page after payment is confirmed."
+        description="Pay from your phone: Airtel Money or MTN MoMo via PawaPay. Enter your number, approve the PIN on your phone — we only leave this page after payment is confirmed."
       />
 
       <section className="py-16">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 space-y-8">
           <div className="flex flex-wrap gap-2">
-            <Badge variant="info">Square · Visa / Mastercard</Badge>
+            <Badge className="bg-[#ED1C24] text-white">Airtel Money · Recommended</Badge>
             <Badge className="bg-[#FFCC00] text-black">MTN MoMo</Badge>
-            <Badge className="bg-[#ED1C24] text-white">Airtel Money</Badge>
-            <Badge variant="success">Bank transfer</Badge>
+            <Badge variant="secondary">Powered by PawaPay</Badge>
+            <Badge variant="info">Card · Square</Badge>
+          </div>
+
+          <div className="rounded-2xl border border-[#ED1C24]/25 bg-[#ED1C24]/5 p-4 text-sm">
+            <p className="font-semibold text-[#ED1C24]">Fastest way: Airtel Money</p>
+            <p className="text-muted-foreground mt-1">
+              After you pick an amount, choose <strong>Airtel Money</strong>, enter your Airtel
+              number, and approve the charge with your Airtel Money PIN on that phone.
+            </p>
           </div>
 
           {step === "form" && (
@@ -159,14 +167,14 @@ export default function DonatePage() {
                 </div>
                 <Button
                   size="lg"
-                  className="w-full sm:w-auto"
+                  className="w-full sm:w-auto bg-[#ED1C24] hover:bg-[#c41620] text-white"
                   disabled={finalAmount < 1000}
                   onClick={() => {
                     if (finalAmount < 1000) return;
                     setStep("checkout");
                   }}
                 >
-                  Continue to payment →
+                  Pay with phone (Airtel / MTN) →
                 </Button>
               </div>
             </div>
@@ -190,7 +198,8 @@ export default function DonatePage() {
                 onCancel={() => setStep("form")}
               />
               <p className="text-xs text-center text-muted-foreground">
-                You stay on this page until payment is confirmed. Then we open your success receipt.
+                Default: Airtel Money via PawaPay — charge hits your phone, enter PIN, then we open
+                your receipt.
               </p>
             </div>
           )}
