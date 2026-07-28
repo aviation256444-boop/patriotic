@@ -56,3 +56,25 @@ After a successful deploy you should have:
 - App may sleep when idle; first visit can take 30–60 seconds to wake.
 - Uploaded files under `/public/uploads` are **ephemeral** unless you use Cloudinary or data-URL logos in site settings.
 - `data/tickets.json` and CMS DB are local disk on the free instance (reset on major redeploy/disk wipe).
+
+## Google Gmail sign-in (account picker)
+
+Users tap **Continue with Google** → Google lists every Gmail account on the device → they pick one → login or auto-register.
+
+1. [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+2. **Create OAuth client ID** → type **Web application**
+3. **Authorized JavaScript origins**
+   - `http://localhost:3000`
+   - `https://patriotic-app.onrender.com`
+4. **Authorized redirect URIs**
+   - `http://localhost:3000/auth/callback/google`
+   - `https://patriotic-app.onrender.com/auth/callback/google`
+5. Add to Render Environment + local `.env.local`:
+
+```env
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=YOUR_CLIENT_ID.apps.googleusercontent.com
+NEXT_PUBLIC_APP_URL=https://patriotic-app.onrender.com
+```
+
+6. Redeploy. Without this Client ID, the Google button cannot show real Gmail accounts (Google requires it).
+
