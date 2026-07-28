@@ -9,9 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BrandLogo } from "@/components/shared/brand-logo";
 import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
-import { EmailCodeAuth } from "@/components/auth/email-code-auth";
 import { useAuthStore } from "@/store/auth-store";
-import type { User } from "@/types";
 import { toast } from "sonner";
 
 function safeNextPath(raw: string | null): string | null {
@@ -24,7 +22,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next")) || "/dashboard";
   const googleError = searchParams.get("google_error");
-  const { login, loading, setUser } = useAuthStore();
+  const { login, loading } = useAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -59,7 +57,7 @@ function LoginForm() {
     else router.push("/dashboard");
   };
 
-  const handlePasswordLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const user = await login(email, password);
@@ -67,11 +65,6 @@ function LoginForm() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Login failed");
     }
-  };
-
-  const handleEmailCodeSuccess = (user: User) => {
-    setUser(user);
-    goAfterLogin(user);
   };
 
   return (
@@ -87,13 +80,12 @@ function LoginForm() {
           </div>
           <h1 className="text-2xl font-bold">Welcome Back</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with email &amp; password, or a one-time email code
+            Sign in with your email and password
           </p>
         </div>
 
         <div className="rounded-2xl border border-border/50 bg-card p-6 sm:p-8 shadow-xl space-y-5">
-          {/* 1) Normal password login */}
-          <form onSubmit={handlePasswordLogin} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="relative">
               <Mail className="absolute left-3 top-[38px] h-4 w-4 text-muted-foreground" />
               <Input
@@ -150,25 +142,6 @@ function LoginForm() {
             </Button>
           </form>
 
-          {/* 2) Optional: email code (auto login / register) */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-3 text-muted-foreground">
-                or continue without password
-              </span>
-            </div>
-          </div>
-
-          <EmailCodeAuth
-            mode="login"
-            defaultEmail={email}
-            onSuccess={handleEmailCodeSuccess}
-          />
-
-          {/* 3) Optional: Google (only if configured) */}
           {googleEnabled && (
             <>
               <div className="relative">
@@ -177,7 +150,7 @@ function LoginForm() {
                 </div>
                 <div className="relative flex justify-center text-xs">
                   <span className="bg-card px-3 text-muted-foreground">
-                    or Google
+                    or continue with Google
                   </span>
                 </div>
               </div>
