@@ -26,9 +26,19 @@ const EXT_MIME: Record<string, string> = {
   heif: "image/heif",
 };
 
-function detectType(file: File): { mime: string; ext: string } | null {
-  let mime = file.type;
-  const nameExt = file.name.split(".").pop()?.toLowerCase() || "";
+/** Node/undici FormData may return File or Blob depending on runtime */
+function isBlobLike(value: unknown): value is Blob {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Blob).arrayBuffer === "function" &&
+    typeof (value as Blob).size === "number"
+  );
+}
+
+function detectType(mimeIn: string, fileName: string): { mime: string; ext: string } | null {
+  let mime = mimeIn || "";
+  const nameExt = fileName.split(".").pop()?.toLowerCase() || "";
 
   if (!mime || mime === "application/octet-stream") {
     mime = EXT_MIME[nameExt] || "";
@@ -51,7 +61,10 @@ function detectType(file: File): { mime: string; ext: string } | null {
   }
 
   if (EXT_MIME[nameExt]) {
-    return { mime: EXT_MIME[nameExt], ext: nameExt === "jpeg" ? "jpg" : nameExt };
+    return {
+      mime: EXT_MIME[nameExt],
+      ext: nameExt === "jpeg" ? "jpg" : nameExt,
+    };
   }
 
   return null;
@@ -60,23 +73,29 @@ function detectType(file: File): { mime: string; ext: string } | null {
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file");
+    const raw = formData.get("file");
     const actor = String(formData.get("actor") || "admin");
+    const preferInline = String(formData.get("preferInline") || "") === "1";
 
-    if (!file || !(file instanceof File)) {
+    if (!raw || !isBlobLike(raw)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    if (file.size <= 0) {
+    const originalName =
+      typeof (raw as File).name === "string" && (raw as File).name
+        ? (raw as File).name
+        : "upload.png";
+
+    if (raw.size <= 0) {
       return NextResponse.json({ error: "Empty file" }, { status: 400 });
     }
 
-    if (file.size > MAX_SIZE) {
+    if (raw.size > MAX_SIZE) {
       return NextResponse.json({ error: "File must be under 12MB" }, { status: 400 });
     }
 
-    const detected = detectType(file);
-    if (!detected) {
+    const typeInfo = detectType(raw.type || "", originalName);
+    if (!typeInfo) {
       return NextResponse.json(
         {
           error:
@@ -86,22 +105,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${detected.ext}`;
+    const buffer = Buffer.from(await raw.arrayBuffer());
+    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${typeInfo.ext}`;
     let permanentUrl = "";
     let storage: "cloudinary" | "disk" | "inline" = "disk";
 
-    // 1) Prefer Cloudinary when configured (survives Render redeploys)
+    // 1) Prefer Cloudinary when configured
     if (hasCloudinaryConfig()) {
-      const cloud = await uploadBufferToCloudinary(buffer, filename, detected.mime);
-      if (cloud?.url) {
-        permanentUrl = cloud.url;
-        storage = "cloudinary";
+      try {
+        const cloud = await uploadBufferToCloudinary(buffer, filename, typeInfo.mime);
+        if (cloud?.url) {
+          permanentUrl = cloud.url;
+          storage = "cloudinary";
+        }
+      } catch (e) {
+        console.error("Cloudinary upload error", e);
       }
     }
 
-    // 2) Always write local disk copy when not using cloud (or as backup)
-    if (!permanentUrl || storage === "disk") {
+    // 2) Write local disk copy
+    try {
       const uploadDir = path.join(process.cwd(), "public", "uploads");
       await fs.mkdir(uploadDir, { recursive: true });
       const fullPath = path.join(uploadDir, filename);
@@ -112,12 +135,25 @@ export async function POST(request: Request) {
         permanentUrl = `/uploads/${filename}`;
         storage = "disk";
       }
+    } catch (diskErr) {
+      console.error("Disk upload failed", diskErr);
+      if (!permanentUrl && buffer.length <= INLINE_MAX && !typeInfo.mime.includes("svg")) {
+        permanentUrl = `data:${typeInfo.mime};base64,${buffer.toString("base64")}`;
+        storage = "inline";
+      } else if (!permanentUrl) {
+        throw diskErr instanceof Error ? diskErr : new Error("Could not save image");
+      }
     }
 
-    // 3) Small images: also offer data URL (persists inside cms-db.json on free hosts)
+    // 3) Small images → data URL for free-host persistence
     let dataUrl: string | undefined;
-    if (buffer.length <= INLINE_MAX && !detected.mime.includes("svg")) {
-      dataUrl = `data:${detected.mime};base64,${buffer.toString("base64")}`;
+    if (buffer.length <= INLINE_MAX && !typeInfo.mime.includes("svg")) {
+      dataUrl = `data:${typeInfo.mime};base64,${buffer.toString("base64")}`;
+    }
+
+    if (preferInline && dataUrl) {
+      permanentUrl = dataUrl;
+      storage = "inline";
     }
 
     const version = Date.now();
@@ -131,11 +167,13 @@ export async function POST(request: Request) {
     try {
       const media = await registerMedia(
         {
-          url: permanentUrl.startsWith("data:") ? permanentUrl.slice(0, 80) + "…" : permanentUrl,
+          url: permanentUrl.startsWith("data:")
+            ? permanentUrl.slice(0, 64) + "…"
+            : permanentUrl,
           filename,
-          size: file.size,
-          type: detected.mime,
-          alt: file.name,
+          size: raw.size,
+          type: typeInfo.mime,
+          alt: originalName,
         },
         actor
       );
@@ -148,20 +186,15 @@ export async function POST(request: Request) {
       {
         url,
         permanentUrl,
-        /** Prefer this for logo/hero on free hosting if under size limit */
         dataUrl,
         filename,
-        size: file.size,
-        type: detected.mime,
+        size: raw.size,
+        type: typeInfo.mime,
         mediaId,
         storage,
         success: true,
       },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
+      { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
     console.error("Upload error:", error);
@@ -172,7 +205,6 @@ export async function POST(request: Request) {
   }
 }
 
-/** List files on disk */
 export async function GET() {
   try {
     const uploadDir = path.join(process.cwd(), "public", "uploads");

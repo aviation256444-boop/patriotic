@@ -534,7 +534,7 @@ export const siteSettingsFields: FieldDef[] = [
     key: "logoUrl",
     label: "Site Logo (Header & Footer)",
     type: "image",
-    help: "Upload your logo — it auto-publishes to header, footer, and auth pages. Prefer a square PNG under ~400KB so it survives free-host redeploys.",
+    help: "Upload any logo (even large). It is auto-resized, saved permanently in site settings, and shows in the header/footer immediately.",
   },
   {
     key: "heroImage",

@@ -5,6 +5,7 @@ import { Upload, X, Link as LinkIcon, Loader2, Images } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUploadImage, useCmsCollection } from "@/hooks/use-cms";
 import { mediaUrl } from "@/lib/cms/media-url";
+import { compressImageForUpload } from "@/lib/upload/compress-image";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { MediaItem } from "@/lib/cms/types";
@@ -47,6 +48,7 @@ export function ImageUpload({
   const [previewKey, setPreviewKey] = useState(Date.now());
   const [dragOver, setDragOver] = useState(false);
   const [broken, setBroken] = useState(false);
+  const [localBusy, setLocalBusy] = useState(false);
 
   useEffect(() => {
     setUrlInput(value || "");
@@ -82,42 +84,89 @@ export function ImageUpload({
         toast.error("Please choose an image file (JPG, PNG, WebP, GIF, SVG)");
         return;
       }
+
+      setLocalBusy(true);
       try {
-        const result = await upload.mutateAsync(file);
-        // Prefer permanent CDN URL, then dataUrl for small logos, then disk path
-        let permanent =
-          result.permanentUrl ||
-          stripQuery(result.url) ||
-          "";
-        if (preferInline && result.dataUrl) {
-          permanent = result.dataUrl;
-        } else if (!permanent && result.dataUrl) {
-          permanent = result.dataUrl;
+        // Compress large logos so they can be stored as durable data URLs
+        let toUpload = file;
+        let clientDataUrl: string | undefined;
+
+        if (preferInline) {
+          toast.message("Preparing logo…", {
+            description: "Resizing large images so they stay on the site permanently.",
+          });
+          const compressed = await compressImageForUpload(file, {
+            maxEdge: 640,
+            maxBytes: 320 * 1024,
+          });
+          toUpload = compressed.file;
+          clientDataUrl = compressed.dataUrl;
+
+          // Apply immediately so UI updates even if network is slow
+          if (clientDataUrl) {
+            applyUrl(clientDataUrl);
+          }
         }
-        if (!permanent) throw new Error("Upload returned no URL");
 
-        applyUrl(permanent);
-        await refetchMedia();
+        let permanent = clientDataUrl || "";
 
-        const where =
-          result.storage === "cloudinary"
-            ? "Cloudinary (permanent)"
-            : preferInline && result.dataUrl
-              ? "saved inside site settings (survives redeploy)"
-              : "saved on this server";
+        try {
+          const result = await upload.mutateAsync({
+            file: toUpload,
+            preferInline,
+          });
 
-        toast.success("Image uploaded", {
-          description: preferInline
-            ? `${where}. Publishing to the live site…`
-            : `${where}. Click Save if this form has a Save button.`,
-        });
+          if (preferInline && (result.dataUrl || clientDataUrl)) {
+            permanent = result.dataUrl || clientDataUrl || permanent;
+          } else {
+            permanent =
+              result.permanentUrl ||
+              stripQuery(result.url) ||
+              result.dataUrl ||
+              clientDataUrl ||
+              permanent;
+          }
+
+          if (!permanent) throw new Error("Upload returned no URL");
+
+          applyUrl(permanent);
+          await refetchMedia().catch(() => undefined);
+
+          const where =
+            result.storage === "cloudinary"
+              ? "Cloudinary (permanent)"
+              : permanent.startsWith("data:")
+                ? "saved inside site settings (survives redeploy)"
+                : "saved on this server";
+
+          toast.success("Image uploaded", {
+            description: preferInline
+              ? `${where}. Publishing to the live site…`
+              : `${where}. Click Save if this form has a Save button.`,
+          });
+        } catch (uploadErr) {
+          // Server upload failed — still keep client data URL for logos
+          if (preferInline && clientDataUrl) {
+            applyUrl(clientDataUrl);
+            toast.success("Logo ready", {
+              description:
+                "Saved in the browser as an embedded image. Publishing to site settings…",
+            });
+          } else {
+            throw uploadErr;
+          }
+        }
       } catch (e) {
         console.error(e);
         toast.error(e instanceof Error ? e.message : "Upload failed");
+      } finally {
+        setLocalBusy(false);
       }
     },
     [upload, refetchMedia, preferInline, applyUrl]
   );
+
+  const busy = upload.isPending || localBusy;
 
   const displaySrc = value
     ? value.startsWith("data:")
@@ -163,7 +212,9 @@ export function ImageUpload({
             </p>
           )}
           <div className="absolute bottom-0 inset-x-0 bg-black/60 px-3 py-1.5 text-[10px] text-white/80 truncate">
-            {value.startsWith("data:") ? "embedded image (data URL)" : stripQuery(value)}
+            {value.startsWith("data:")
+              ? "embedded image (stays after redeploy)"
+              : stripQuery(value)}
           </div>
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
             <Button
@@ -172,6 +223,7 @@ export function ImageUpload({
               variant="glass"
               className="text-white"
               onClick={() => inputRef.current?.click()}
+              disabled={busy}
             >
               Replace
             </Button>
@@ -210,10 +262,10 @@ export function ImageUpload({
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            disabled={upload.isPending}
+            disabled={busy}
             className="flex h-44 w-full flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground"
           >
-            {upload.isPending ? (
+            {busy ? (
               <>
                 <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
                 <span className="text-sm font-medium text-emerald-600">Uploading…</span>
@@ -249,7 +301,7 @@ export function ImageUpload({
           size="sm"
           className="bg-emerald-600 hover:bg-emerald-500"
           onClick={() => inputRef.current?.click()}
-          loading={upload.isPending}
+          loading={busy}
         >
           <Upload className="h-3.5 w-3.5" /> Upload from device
         </Button>
@@ -258,11 +310,18 @@ export function ImageUpload({
           size="sm"
           variant="outline"
           onClick={() => setLibraryOpen(!libraryOpen)}
+          disabled={busy}
         >
           <Images className="h-3.5 w-3.5" />
           {libraryOpen ? "Hide library" : "Media Library"}
         </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setUrlMode(!urlMode)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setUrlMode(!urlMode)}
+          disabled={busy}
+        >
           <LinkIcon className="h-3.5 w-3.5" />
           {urlMode ? "Hide link" : "Paste link"}
         </Button>

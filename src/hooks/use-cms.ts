@@ -8,33 +8,42 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      // Only set JSON content-type when there is a body (FormData must not get this)
+      ...(init?.body && !(init.body instanceof FormData)
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
+    throw new Error(err.error || `Request failed (${res.status})`);
   }
   return res.json() as Promise<T>;
 }
 
-/** Bust React Query so header/logo/hero update immediately after save */
-async function bustCmsCache(qc: ReturnType<typeof useQueryClient>, collection?: string) {
-  await qc.invalidateQueries({ queryKey: ["cms"], refetchType: "all" });
+/** Soft cache invalidate — prefer setQueryData; avoid hard-refetch races */
+async function bustCmsCache(
+  qc: ReturnType<typeof useQueryClient>,
+  collection?: string
+) {
+  await qc.invalidateQueries({ queryKey: ["cms"], refetchType: "active" });
   if (collection) {
-    await qc.invalidateQueries({ queryKey: ["cms", collection], refetchType: "all" });
+    await qc.invalidateQueries({
+      queryKey: ["cms", collection],
+      refetchType: "active",
+    });
   }
-  await qc.refetchQueries({ queryKey: ["cms"], type: "all" });
 }
 
 const liveQueryOptions = {
-  staleTime: 0,
-  gcTime: 30_000,
-  refetchOnMount: "always" as const,
+  staleTime: 5_000,
+  gcTime: 60_000,
+  refetchOnMount: true as const,
   refetchOnWindowFocus: true,
   refetchOnReconnect: true,
+  retry: 2,
 };
 
 export function useCmsDb() {
@@ -48,14 +57,34 @@ export function useCmsDb() {
 export function useCmsCollection<K extends keyof CmsDatabase>(collection: K) {
   return useQuery({
     queryKey: ["cms", collection],
-    queryFn: () =>
-      fetchJson<CmsDatabase[K]>(`/api/cms/${collection}?t=${Date.now()}`),
+    queryFn: async () => {
+      try {
+        return await fetchJson<CmsDatabase[K]>(
+          `/api/cms/${collection}?t=${Date.now()}`
+        );
+      } catch {
+        // Fallback: full DB (works even if [collection] route is flaky)
+        const db = await fetchJson<CmsDatabase>(`/api/cms?t=${Date.now()}`);
+        return db[collection];
+      }
+    },
     ...liveQueryOptions,
   });
 }
 
 export function useSiteSettings() {
-  return useCmsCollection("site");
+  return useQuery({
+    queryKey: ["cms", "site"],
+    queryFn: async () => {
+      try {
+        return await fetchJson<SiteSettings>(`/api/cms/site?t=${Date.now()}`);
+      } catch {
+        const db = await fetchJson<CmsDatabase>(`/api/cms?t=${Date.now()}`);
+        return db.site;
+      }
+    },
+    ...liveQueryOptions,
+  });
 }
 
 export function useNationalStats() {
@@ -89,8 +118,11 @@ export function useUpdateSite() {
         body: JSON.stringify({ data, actor }),
       }),
     onSuccess: async (site) => {
-      // Optimistically put site in cache so logo updates without full reload
+      // Instant header/footer logo update — do not wait on flaky refetches
       qc.setQueryData(["cms", "site"], site);
+      qc.setQueryData(["cms"], (old: CmsDatabase | undefined) =>
+        old ? { ...old, site } : old
+      );
       await bustCmsCache(qc, "site");
     },
   });
@@ -160,10 +192,13 @@ export function useUploadImage() {
   const qc = useQueryClient();
   const actor = useActor();
   return useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (input: File | { file: File; preferInline?: boolean }) => {
+      const file = input instanceof File ? input : input.file;
+      const preferInline = input instanceof File ? false : Boolean(input.preferInline);
       const form = new FormData();
       form.append("file", file);
       form.append("actor", actor);
+      if (preferInline) form.append("preferInline", "1");
       const res = await fetch("/api/upload", {
         method: "POST",
         body: form,
@@ -171,7 +206,7 @@ export function useUploadImage() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
-        throw new Error(err.error || "Upload failed");
+        throw new Error(err.error || `Upload failed (${res.status})`);
       }
       return res.json() as Promise<{
         url: string;
