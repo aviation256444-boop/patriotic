@@ -1,6 +1,6 @@
 /**
- * Verify Google ID token (GIS One Tap / OAuth) without Firebase.
- * Requires NEXT_PUBLIC_GOOGLE_CLIENT_ID (and same on Google Cloud Console).
+ * Verify Google ID token (OAuth) without Firebase.
+ * Client ID is public — baked in so Render always enables the Google button.
  */
 
 import { ensureUserRecord } from "@/lib/auth/local-users";
@@ -18,32 +18,25 @@ type GoogleTokenInfo = {
   error_description?: string;
 };
 
-/**
- * Google OAuth Web Client ID (public).
- * IMPORTANT: reference process.env.NEXT_PUBLIC_* as a direct property so
- * Next.js inlines it at build time from .env.production / Render env.
- */
-const BAKED_GOOGLE_CLIENT_ID =
-  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-  // Public Web Client ID fallback (safe — not a secret). Ensures Render
-  // still works if dashboard env was never set.
+/** Public OAuth Web Client ID (not a secret). */
+export const GOOGLE_OAUTH_CLIENT_ID =
   "868445110488-pj1f968b1a5f444bva2hkl9gc4v550uu.apps.googleusercontent.com";
 
 export function getGoogleClientId(): string {
-  const raw =
-    BAKED_GOOGLE_CLIENT_ID ||
-    process.env.GOOGLE_CLIENT_ID ||
-    process.env.GOOGLE_OAUTH_CLIENT_ID ||
-    "";
-  return String(raw).trim().replace(/^["']|["']$/g, "");
+  // Prefer env when set, otherwise always use the known public client ID
+  const fromEnv = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "").trim();
+  const id = fromEnv || GOOGLE_OAUTH_CLIENT_ID;
+  return id.replace(/^["']|["']$/g, "");
+}
+
+export function isGoogleOAuthConfigured(): boolean {
+  return getGoogleClientId().length > 20;
 }
 
 export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
   const clientId = getGoogleClientId();
   if (!clientId) {
-    throw new Error(
-      "Google sign-in is not configured. In Render → Environment add NEXT_PUBLIC_GOOGLE_CLIENT_ID, then Manual Deploy (Clear build cache)."
-    );
+    throw new Error("Google sign-in is not configured.");
   }
   if (!idToken || idToken.length < 20) {
     throw new Error("Missing Google credential");
@@ -92,8 +85,4 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
   });
 
   return user;
-}
-
-export function isGoogleOAuthConfigured(): boolean {
-  return Boolean(getGoogleClientId());
 }

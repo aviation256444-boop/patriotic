@@ -37,11 +37,8 @@ export async function POST(request: Request) {
 export async function GET() {
   const id = getGoogleClientId();
   return NextResponse.json({
-    enabled: Boolean(id),
+    enabled: isGoogleOAuthConfigured(),
     clientId: id ? "configured" : null,
-    /** Safe hint only — never return the full secret client secret; client id is public */
-    hint: id
-      ? `${id.slice(0, 12)}…`
-      : "Missing NEXT_PUBLIC_GOOGLE_CLIENT_ID on server",
+    hint: id ? `${id.slice(0, 12)}…` : "missing",
   });
 }

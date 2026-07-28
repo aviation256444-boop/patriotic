@@ -26,20 +26,12 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [googleEnabled, setGoogleEnabled] = useState(false);
 
   useEffect(() => {
     if (googleError) {
       toast.error(decodeURIComponent(googleError));
     }
   }, [googleError]);
-
-  useEffect(() => {
-    fetch("/api/auth/oauth/google", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setGoogleEnabled(Boolean(d.enabled)))
-      .catch(() => setGoogleEnabled(false));
-  }, []);
 
   const goAfterLogin = (user: { role?: string; fullName: string }) => {
     toast.success(`Welcome, ${user.fullName.split(" ")[0]}!`);
@@ -80,7 +72,7 @@ function LoginForm() {
           </div>
           <h1 className="text-2xl font-bold">Welcome Back</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with your email and password
+            Sign in with email &amp; password, or choose a Google account
           </p>
         </div>
 
@@ -142,26 +134,19 @@ function LoginForm() {
             </Button>
           </form>
 
-          {googleEnabled && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-card px-3 text-muted-foreground">
-                    or continue with Google
-                  </span>
-                </div>
-              </div>
-              <GoogleSignInButton
-                mode="login"
-                nextPath={nextPath}
-                size="default"
-                quiet
-              />
-            </>
-          )}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-3 text-muted-foreground">
+                or continue with Google
+              </span>
+            </div>
+          </div>
+
+          {/* Always visible — opens Google account list */}
+          <GoogleSignInButton mode="login" nextPath={nextPath} size="default" />
 
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}

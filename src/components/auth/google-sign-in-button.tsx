@@ -1,72 +1,46 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 type Props = {
   mode?: "login" | "register";
   nextPath?: string;
   className?: string;
   size?: "default" | "lg";
-  /**
-   * When true (recommended): hide setup error box.
-   * Parent should only render this button if Google is enabled.
-   */
+  /** kept for compatibility — button is always shown */
   quiet?: boolean;
 };
 
 /**
- * Optional Google button → account picker → auto login / register.
- * Normal email/password login does not depend on this.
+ * Always-visible Google button.
+ * Tap → Google account list on this device → pick Gmail → login or auto-register.
  */
 export function GoogleSignInButton({
   mode = "login",
   nextPath = "/dashboard",
   className,
   size = "default",
-  quiet = false,
 }: Props) {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/auth/oauth/google", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setEnabled(Boolean(d.enabled)))
-      .catch(() => setEnabled(false));
-  }, []);
-
   const startGoogle = useCallback(() => {
-    if (enabled === false) {
-      toast.error("Google sign-in is optional and not enabled on this server yet.");
-      return;
-    }
     setBusy(true);
     const qs = new URLSearchParams({
       mode,
       next: nextPath.startsWith("/") ? nextPath : "/dashboard",
     });
+    // Redirect opens Google's full account chooser (all Gmail accounts on device)
     window.location.href = `/api/auth/oauth/google/start?${qs.toString()}`;
-  }, [enabled, mode, nextPath]);
-
-  // Quiet mode: if not configured, render nothing (no error spam)
-  if (quiet && enabled === false) return null;
-  if (quiet && enabled === null) {
-    return (
-      <div className="flex justify-center py-2">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  }, [mode, nextPath]);
 
   return (
     <div className={cn("w-full space-y-2", className)}>
       <button
         type="button"
         onClick={startGoogle}
-        disabled={busy || enabled === null || enabled === false}
+        disabled={busy}
         className={cn(
           "w-full inline-flex items-center justify-center gap-3 rounded-2xl border-2 border-border bg-white text-gray-800 font-semibold shadow-sm",
           "hover:bg-gray-50 hover:border-gray-300 hover:shadow-md transition-all",
@@ -85,11 +59,10 @@ export function GoogleSignInButton({
           {mode === "register" ? "Sign up with Google" : "Continue with Google"}
         </span>
       </button>
-      {enabled && (
-        <p className="text-[11px] text-center text-muted-foreground leading-snug">
-          Optional — pick a Gmail on this device to sign in or create an account.
-        </p>
-      )}
+      <p className="text-[11px] text-center text-muted-foreground leading-snug">
+        Tap to see every Google / Gmail account on this device, then choose one to
+        sign in or create an account automatically.
+      </p>
     </div>
   );
 }

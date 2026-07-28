@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -20,14 +20,6 @@ export default function RegisterPage() {
     password: "",
     confirm: "",
   });
-  const [googleEnabled, setGoogleEnabled] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/auth/oauth/google", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setGoogleEnabled(Boolean(d.enabled)))
-      .catch(() => setGoogleEnabled(false));
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +63,7 @@ export default function RegisterPage() {
           </div>
           <h1 className="text-2xl font-bold">Create Account</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Register with your name, email, and password
+            Register with email &amp; password, or pick a Google account
           </p>
         </div>
 
@@ -120,26 +112,23 @@ export default function RegisterPage() {
             </Button>
           </form>
 
-          {googleEnabled && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-card px-3 text-muted-foreground">
-                    or continue with Google
-                  </span>
-                </div>
-              </div>
-              <GoogleSignInButton
-                mode="register"
-                nextPath="/dashboard"
-                size="default"
-                quiet
-              />
-            </>
-          )}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-3 text-muted-foreground">
+                or continue with Google
+              </span>
+            </div>
+          </div>
+
+          {/* Always visible — opens Google account list */}
+          <GoogleSignInButton
+            mode="register"
+            nextPath="/dashboard"
+            size="default"
+          />
 
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}

@@ -29,10 +29,8 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") || "/dashboard";
   const mode = searchParams.get("mode") || "login";
 
-  // Prefer public app URL; fall back to request origin (local dev)
-  const origin =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    new URL(request.url).origin;
+  // Use the host the user is actually on (local or Render) so redirect_uri matches
+  const origin = new URL(request.url).origin;
 
   const redirectUri = `${origin}/auth/callback/google`;
   const nonce = randomBytes(16).toString("hex");
