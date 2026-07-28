@@ -1,23 +1,21 @@
-# Public URL: https://patriotic.onrender.com
-# IMPORTANT: In Dashboard → Environment, set:
-#   PAWAPAY_API_TOKEN = your live token
+# Fresh service name to avoid stuck "patriotic" free instance
+# Public URL after deploy: https://patriotic-app.onrender.com
+# Set PAWAPAY_API_TOKEN in Dashboard → Environment
 services:
   - type: web
-    name: patriotic
+    name: patriotic-app
     runtime: node
     plan: free
-    region: oregon
+    region: frankfurt
     branch: main
     buildCommand: npm install --legacy-peer-deps --no-audit --no-fund && npm run build
-    startCommand: npm run start -- -H 0.0.0.0 -p $PORT
+    startCommand: npx next start -H 0.0.0.0 -p $PORT
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
-        value: "20.18.0"
+        value: "20"
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: "10000"
       - key: NODE_OPTIONS
         value: --max-old-space-size=460
       - key: NEXT_TELEMETRY_DISABLED
@@ -27,7 +25,7 @@ services:
       - key: NEXT_PUBLIC_APP_NAME
         value: Patriotic Youths of Uganda
       - key: NEXT_PUBLIC_APP_URL
-        value: https://patriotic.onrender.com
+        value: https://patriotic-app.onrender.com
       - key: NEXT_PUBLIC_PAWAPAY_ENABLED
         value: "true"
       - key: PAWAPAY_ENV
