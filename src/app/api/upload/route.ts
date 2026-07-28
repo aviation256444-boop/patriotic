@@ -11,7 +11,6 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Accept large phone photos; client compresses first but keep headroom */
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 const INLINE_MAX = 450 * 1024;
 
@@ -44,7 +43,11 @@ function detectType(
   let mime = (mimeIn || "").toLowerCase();
   const nameExt = fileName.split(".").pop()?.toLowerCase() || "";
 
-  if (!mime || mime === "application/octet-stream" || mime === "binary/octet-stream") {
+  if (
+    !mime ||
+    mime === "application/octet-stream" ||
+    mime === "binary/octet-stream"
+  ) {
     mime = EXT_MIME[nameExt] || "";
   }
 
@@ -73,7 +76,6 @@ function detectType(
     };
   }
 
-  // Some browsers send empty type — allow common image extensions
   if (nameExt && ["jpg", "jpeg", "png", "webp", "gif", "svg"].includes(nameExt)) {
     return {
       mime: EXT_MIME[nameExt] || "image/jpeg",
@@ -82,6 +84,21 @@ function detectType(
   }
 
   return null;
+}
+
+async function writeUpload(buffer: Buffer, filename: string): Promise<void> {
+  // Write to data/uploads (primary) AND public/uploads (dev convenience)
+  const dirs = [
+    path.join(process.cwd(), "data", "uploads"),
+    path.join(process.cwd(), "public", "uploads"),
+  ];
+  for (const dir of dirs) {
+    await fs.mkdir(dir, { recursive: true });
+    const full = path.join(dir, filename);
+    await fs.writeFile(full, buffer);
+    const st = await fs.stat(full);
+    if (!st.size) throw new Error(`Empty write: ${full}`);
+  }
 }
 
 export async function POST(request: Request) {
@@ -94,7 +111,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Could not read upload body. Try a smaller JPG/PNG (under 5MB) or paste an image URL.",
+            "Could not read upload body. Try a smaller JPG/PNG or paste an image URL.",
         },
         { status: 400 }
       );
@@ -122,7 +139,7 @@ export async function POST(request: Request) {
 
     if (raw.size > MAX_SIZE) {
       return NextResponse.json(
-        { error: "File must be under 25MB (compress large photos first)" },
+        { error: "File must be under 25MB" },
         { status: 400 }
       );
     }
@@ -132,13 +149,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Only image files are allowed (JPEG, PNG, WebP, GIF, SVG). Rename the file with a proper extension if needed.",
+            "Only image files are allowed (JPEG, PNG, WebP, GIF, SVG). Rename with a proper extension if needed.",
         },
         { status: 400 }
       );
     }
 
-    // Reject HEIC on server if not already converted client-side (rare)
     if (
       typeInfo.mime.includes("heic") ||
       typeInfo.mime.includes("heif") ||
@@ -147,7 +163,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "HEIC images are not supported on the server. Open the photo and export as JPG, or use a different image.",
+            "HEIC is not supported. Export as JPG from your phone Photos app and try again.",
         },
         { status: 400 }
       );
@@ -162,7 +178,7 @@ export async function POST(request: Request) {
     let permanentUrl = "";
     let storage: "cloudinary" | "disk" | "inline" = "disk";
 
-    // 1) Cloudinary when configured
+    // 1) Cloudinary when configured (best for Render permanence)
     if (hasCloudinaryConfig()) {
       try {
         const cloud = await uploadBufferToCloudinary(
@@ -179,15 +195,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2) Local disk (public/uploads)
+    // 2) Disk — served via /api/uploads/[filename] (NOT static public folder)
     try {
-      const uploadDir = path.join(process.cwd(), "public", "uploads");
-      await fs.mkdir(uploadDir, { recursive: true });
-      const fullPath = path.join(uploadDir, filename);
-      await fs.writeFile(fullPath, buffer);
-      const stat = await fs.stat(fullPath);
-      if (!stat.size) throw new Error("Upload wrote an empty file");
+      await writeUpload(buffer, filename);
       if (!permanentUrl) {
+        // Use path that always goes through our API route in production
         permanentUrl = `/uploads/${filename}`;
         storage = "disk";
       }
@@ -204,7 +216,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error:
-              "Could not save image to disk. Try a smaller JPG or configure Cloudinary.",
+              "Could not save image. Try a smaller JPG or set up Cloudinary.",
             detail:
               diskErr instanceof Error ? diskErr.message : "disk write failed",
           },
@@ -213,7 +225,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3) Optional data URL for small images
+    // 3) data URL for small images (free-host durable when stored in cms-db)
     let dataUrl: string | undefined;
     if (buffer.length <= INLINE_MAX && !typeInfo.mime.includes("svg")) {
       dataUrl = `data:${typeInfo.mime};base64,${buffer.toString("base64")}`;
@@ -247,7 +259,6 @@ export async function POST(request: Request) {
       );
       mediaId = String(media.id);
     } catch (e) {
-      // Don't fail the whole upload if media registry fails
       console.error("registerMedia failed", e);
     }
 
@@ -281,39 +292,45 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    await fs.mkdir(uploadDir, { recursive: true });
-    const files = await fs.readdir(uploadDir);
-    const images = (
-      await Promise.all(
-        files
-          .filter((f) => /\.(jpe?g|png|webp|gif|svg)$/i.test(f))
-          .map(async (f) => {
-            try {
-              const st = await fs.stat(path.join(uploadDir, f));
-              return {
-                id: f,
-                filename: f,
-                url: `/uploads/${f}`,
-                size: st.size,
-                createdAt: st.mtime.toISOString(),
-              };
-            } catch {
-              return null;
-            }
-          })
-      )
-    )
-      .filter(Boolean)
-      .sort((a, b) =>
-        (a!.createdAt < b!.createdAt ? 1 : -1)
-      ) as {
+    const dirs = [
+      path.join(process.cwd(), "data", "uploads"),
+      path.join(process.cwd(), "public", "uploads"),
+    ];
+    const seen = new Set<string>();
+    const images: {
       id: string;
       filename: string;
       url: string;
       size: number;
       createdAt: string;
-    }[];
+    }[] = [];
+
+    for (const uploadDir of dirs) {
+      try {
+        await fs.mkdir(uploadDir, { recursive: true });
+        const files = await fs.readdir(uploadDir);
+        for (const f of files) {
+          if (!/\.(jpe?g|png|webp|gif|svg)$/i.test(f) || seen.has(f)) continue;
+          seen.add(f);
+          try {
+            const st = await fs.stat(path.join(uploadDir, f));
+            images.push({
+              id: f,
+              filename: f,
+              url: `/uploads/${f}`,
+              size: st.size,
+              createdAt: st.mtime.toISOString(),
+            });
+          } catch {
+            /* skip */
+          }
+        }
+      } catch {
+        /* skip dir */
+      }
+    }
+
+    images.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
     return NextResponse.json(images, {
       headers: { "Cache-Control": "no-store" },

@@ -16,8 +16,16 @@ const nextConfig = {
       bodySizeLimit: "25mb",
     },
   },
-  // Allow larger multipart image uploads in App Router route handlers
-  // (client still compresses first — this is headroom for edge cases)
+  // Runtime uploads must be served by /api/uploads — Next does not serve
+  // files written to /public after production build (Render free tier bug).
+  async rewrites() {
+    return [
+      {
+        source: "/uploads/:filename",
+        destination: "/api/uploads/:filename",
+      },
+    ];
+  },
 
   images: {
     remotePatterns: [

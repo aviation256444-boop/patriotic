@@ -45,6 +45,8 @@ next-env.d.ts
 # uploaded images (keep folder)
 /public/uploads/*
 !/public/uploads/.gitkeep
+/data/uploads/*
+!/data/uploads/.gitkeep
 
 # secrets / local
 .env

@@ -133,18 +133,24 @@ export function ImageUpload({
             preferInline,
           });
 
+          // Prefer durable data URL for free hosts when small enough
+          // (event covers stored only as /uploads/... broke on Render)
+          const smallEnough =
+            Boolean(clientDataUrl) && toUpload.size <= 450 * 1024;
+
           if (preferInline && (result.dataUrl || clientDataUrl)) {
+            permanent = result.dataUrl || clientDataUrl || "";
+          } else if (smallEnough && (result.dataUrl || clientDataUrl)) {
+            // Embed content images in CMS JSON so they survive redeploys
             permanent = result.dataUrl || clientDataUrl || "";
           } else {
             permanent =
               result.permanentUrl ||
               stripQuery(result.url) ||
               result.dataUrl ||
+              clientDataUrl ||
               "";
           }
-
-          // Last-resort client fallback if server returned empty
-          if (!permanent && clientDataUrl) permanent = clientDataUrl;
 
           if (!permanent) throw new Error("Upload returned no URL");
 
@@ -155,8 +161,8 @@ export function ImageUpload({
             result.storage === "cloudinary"
               ? "Cloudinary (permanent)"
               : permanent.startsWith("data:")
-                ? "embedded in the form (survives free-host redeploys)"
-                : "saved on this server";
+                ? "embedded in the form (works on free hosting)"
+                : "saved on this server (served via API)";
 
           toast.success("Image uploaded", {
             description: preferInline
@@ -169,10 +175,9 @@ export function ImageUpload({
             applyUrl(clientDataUrl);
             toast.success("Image ready", {
               description:
-                "Server upload had a problem, but the image was embedded in the form. Click Save to keep it.",
+                "Embedded in the form. Click Save so it is stored with this item.",
             });
           } else if (toUpload && toUpload.size < 450 * 1024) {
-            // Tiny compressed file → data URL without server
             const reader = new FileReader();
             const dataUrl = await new Promise<string>((resolve, reject) => {
               reader.onload = () => resolve(String(reader.result || ""));
@@ -180,7 +185,7 @@ export function ImageUpload({
               reader.readAsDataURL(toUpload);
             });
             applyUrl(dataUrl);
-            toast.success("Image ready (offline fallback)", {
+            toast.success("Image ready (embedded)", {
               description: "Click Save on this form to keep it.",
             });
           } else {

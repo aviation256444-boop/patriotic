@@ -20,8 +20,11 @@ export const COMPRESS_PRESETS = {
   logo: { maxEdge: 640, maxBytes: 320 * 1024, nameHint: "logo" } as CompressOptions,
   /** Hero / OG social images */
   hero: { maxEdge: 1600, maxBytes: 700 * 1024, nameHint: "hero" } as CompressOptions,
-  /** Event covers, news, programs, leaders, gallery, projects… */
-  content: { maxEdge: 1600, maxBytes: 900 * 1024, nameHint: "image" } as CompressOptions,
+  /**
+   * Event covers, news, programs, leaders, gallery, projects…
+   * Kept under ~400KB so we can embed as data URL in cms-db (survives Render).
+   */
+  content: { maxEdge: 1400, maxBytes: 400 * 1024, nameHint: "image" } as CompressOptions,
 };
 
 function loadImage(file: Blob): Promise<HTMLImageElement> {
