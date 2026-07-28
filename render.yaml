@@ -1,6 +1,5 @@
-# Render permanent hosting — free web service (stable public URL)
-# Public URL: https://patriotic-youths-uganda.onrender.com
-# Secrets (PAWAPAY_API_TOKEN, Square, etc.) — set in Dashboard → Environment
+# Permanent host: https://patriotic-youths-uganda.onrender.com
+# Set PAWAPAY_API_TOKEN in Dashboard → Environment (do not put secrets here).
 # Docs: https://render.com/docs/blueprint-spec
 services:
   - type: web
@@ -9,7 +8,7 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /
     envVars:
@@ -17,6 +16,8 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=460
       - key: NEXT_PUBLIC_DEMO_MODE
         value: "false"
       - key: NEXT_PUBLIC_APP_NAME
