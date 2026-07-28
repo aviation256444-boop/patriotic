@@ -175,6 +175,12 @@ export default function SuperAdminPaymentsPage() {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [refundable, setRefundable] = useState<RefundablePayment[]>([]);
   const [refundingId, setRefundingId] = useState<string | null>(null);
+  const [manualRefundPhone, setManualRefundPhone] = useState("");
+  const [manualRefundAmount, setManualRefundAmount] = useState("");
+  const [manualRefundNote, setManualRefundNote] = useState("");
+  const [manualRefunding, setManualRefunding] = useState(false);
+  const [phoneMatchTotal, setPhoneMatchTotal] = useState<number | null>(null);
+  const [lookingUpPhone, setLookingUpPhone] = useState(false);
 
   const [gateway, setGateway] = useState<"airtel_money" | "mtn_momo">("airtel_money");
   const [phone, setPhone] = useState("");
@@ -283,6 +289,86 @@ export default function SuperAdminPaymentsPage() {
     }
   };
 
+  const lookupRefundPhone = async (rawPhone: string) => {
+    if (!user || !rawPhone.trim()) {
+      setPhoneMatchTotal(null);
+      return;
+    }
+    setLookingUpPhone(true);
+    try {
+      const q = new URLSearchParams(actorQs());
+      q.set("phone", rawPhone.trim());
+      const res = await fetch(`/api/payments/refund?${q}`, { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok) {
+        setPhoneMatchTotal(
+          typeof data.matchTotal === "number" ? data.matchTotal : 0
+        );
+        if (Array.isArray(data.refundable)) {
+          // Keep full list from main load; optional highlight via total
+        }
+      }
+    } catch {
+      setPhoneMatchTotal(null);
+    } finally {
+      setLookingUpPhone(false);
+    }
+  };
+
+  const submitManualRefund = async () => {
+    if (!user) return;
+    const p = manualRefundPhone.trim();
+    const amt = Math.round(Number(manualRefundAmount));
+    if (!p) {
+      toast.error("Enter the phone number to refund");
+      return;
+    }
+    if (!isValidUgPhone(p)) {
+      toast.error("Enter a valid UG number (e.g. 0752 123 456)");
+      return;
+    }
+    if (!amt || amt < 500) {
+      toast.error("Enter amount (minimum UGX 500)");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Send refund of UGX ${amt.toLocaleString()} to ${p}?\n\n` +
+        `This number must be the one that paid. Money returns only to ${p}.`
+    );
+    if (!ok) return;
+
+    setManualRefunding(true);
+    try {
+      const res = await fetch("/api/payments/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "manual",
+          actorId: user.id,
+          actorEmail: user.email,
+          phone: p,
+          amount: amt,
+          note: manualRefundNote.trim() || `Manual refund to ${p}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Refund failed");
+      toast.success(
+        data.message ||
+          `Refund of UGX ${(data.refundedTotal || amt).toLocaleString()} sent to ${p}`
+      );
+      setManualRefundAmount("");
+      setManualRefundNote("");
+      setPhoneMatchTotal(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refund failed");
+    } finally {
+      setManualRefunding(false);
+    }
+  };
+
   const submitRefund = async (payment: RefundablePayment) => {
     if (!user) return;
     if (!payment.phone) {
@@ -290,10 +376,8 @@ export default function SuperAdminPaymentsPage() {
       return;
     }
     const ok = window.confirm(
-      `Refund UGX ${Number(payment.amount).toLocaleString()} to the ORIGINAL payer only?\n\n` +
-        `Number that paid: ${payment.phone}\n` +
-        `Donor: ${payment.donorName || "—"}\n\n` +
-        `Money will NOT go to the super-admin wallet. It returns only to ${payment.phone}.`
+      `Refund UGX ${Number(payment.amount).toLocaleString()} to ${payment.phone}?\n\n` +
+        `Money returns only to the number that paid.`
     );
     if (!ok) return;
 
@@ -308,14 +392,14 @@ export default function SuperAdminPaymentsPage() {
           paymentId: payment.id,
           depositId: payment.depositId,
           amount: payment.amount,
-          note: `Refund to original payer ${payment.phone}`,
+          phone: payment.phone,
+          note: `Refund to ${payment.phone}`,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Refund failed");
       toast.success(
-        data.message ||
-          `Refund sent to ${payment.phone} (the number that paid)`
+        data.message || `Refund sent to ${payment.phone}`
       );
       void load();
     } catch (e) {
@@ -366,7 +450,7 @@ export default function SuperAdminPaymentsPage() {
         </div>
       </div>
 
-      {/* REFUND — only to original payer */}
+      {/* REFUND — manual by phone */}
       <div
         id="refund-section"
         className="rounded-2xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-card to-card p-5 sm:p-6 space-y-4"
@@ -375,12 +459,12 @@ export default function SuperAdminPaymentsPage() {
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
               <Undo2 className="h-5 w-5 text-amber-600" />
-              Refund to original payer
+              Manual refund
             </h2>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Uses PawaPay <strong className="text-foreground">REFUND</strong> (enabled on your
-              account). Money always goes back to the <strong className="text-foreground">same
-              mobile number that paid</strong> — never to a different wallet. Super admin only.
+              Type the <strong className="text-foreground">phone number</strong> that paid and the{" "}
+              <strong className="text-foreground">amount</strong>. We match that number’s completed
+              payments and send the refund back to it via PawaPay.
             </p>
           </div>
           <Badge className="bg-amber-600 text-white border-0 shrink-0">
@@ -388,14 +472,89 @@ export default function SuperAdminPaymentsPage() {
           </Badge>
         </div>
 
-        <div className="rounded-xl border border-amber-500/30 bg-background/80 p-3 text-xs text-muted-foreground flex gap-2">
-          <Phone className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-          <p>
-            Example: donor paid with <span className="font-mono text-foreground">0752…</span> →
-            refund lands on <span className="font-mono text-foreground">0752…</span> only. You
-            cannot redirect a refund to your own number.
+        <div className="rounded-2xl border-2 border-amber-600/40 bg-background p-5 space-y-4 shadow-sm">
+          <p className="text-sm font-semibold flex items-center gap-2">
+            <Phone className="h-4 w-4 text-amber-600" />
+            Enter number + amount → refund
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Phone number to refund"
+              placeholder="0752 123 456"
+              inputMode="tel"
+              autoComplete="tel"
+              value={manualRefundPhone}
+              onChange={(e) => {
+                setManualRefundPhone(e.target.value);
+                setPhoneMatchTotal(null);
+              }}
+              onBlur={() => void lookupRefundPhone(manualRefundPhone)}
+            />
+            <div className="space-y-1.5">
+              <Input
+                label="Amount (UGX)"
+                type="number"
+                min={500}
+                placeholder="e.g. 10000"
+                value={manualRefundAmount}
+                onChange={(e) => setManualRefundAmount(e.target.value)}
+              />
+              {lookingUpPhone && (
+                <p className="text-[11px] text-muted-foreground">Checking payments for this number…</p>
+              )}
+              {phoneMatchTotal != null && !lookingUpPhone && (
+                <p className="text-[11px] text-muted-foreground">
+                  {phoneMatchTotal > 0 ? (
+                    <>
+                      Up to{" "}
+                      <strong className="text-foreground">
+                        UGX {phoneMatchTotal.toLocaleString()}
+                      </strong>{" "}
+                      can be refunded to this number
+                      <button
+                        type="button"
+                        className="ml-2 text-amber-700 font-semibold hover:underline"
+                        onClick={() => setManualRefundAmount(String(phoneMatchTotal))}
+                      >
+                        Use max
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-amber-700">
+                      No refundable payments found for this number yet
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+          <Input
+            label="Note (optional)"
+            placeholder="e.g. Customer requested refund"
+            value={manualRefundNote}
+            onChange={(e) => setManualRefundNote(e.target.value)}
+          />
+          <Button
+            size="lg"
+            className="w-full sm:w-auto font-bold bg-amber-600 hover:bg-amber-500 text-white"
+            loading={manualRefunding}
+            disabled={manualRefunding}
+            onClick={() => void submitManualRefund()}
+          >
+            <Undo2 className="h-4 w-4" />
+            Refund UGX{" "}
+            {(Math.round(Number(manualRefundAmount)) || 0).toLocaleString() || "—"} to{" "}
+            {manualRefundPhone.trim() || "number"}
+          </Button>
+          <p className="text-[11px] text-muted-foreground">
+            The number must have paid on this site (Airtel/MTN via PawaPay). Refund always goes to
+            that same number — not to a different wallet.
           </p>
         </div>
+
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">
+          Or pick a payment from the list
+        </p>
 
         <div className="overflow-x-auto rounded-xl border border-border/50 bg-card">
           <table className="w-full text-sm">
