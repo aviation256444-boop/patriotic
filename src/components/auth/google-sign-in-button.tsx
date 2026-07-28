@@ -24,23 +24,25 @@ export function GoogleSignInButton({
   size = "lg",
 }: Props) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [hint, setHint] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/oauth/google", { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => setEnabled(Boolean(d.enabled)))
-      .catch(() =>
-        setEnabled(Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID))
-      );
+      .then((d) => {
+        setEnabled(Boolean(d.enabled));
+        setHint(String(d.hint || ""));
+      })
+      .catch(() => setEnabled(false));
   }, []);
 
   const startGoogle = useCallback(() => {
     if (enabled === false) {
-      toast.error("Google sign-in is not set up yet", {
+      toast.error("Google Client ID missing on the server", {
         description:
-          "Admin must add NEXT_PUBLIC_GOOGLE_CLIENT_ID from Google Cloud Console.",
-        duration: 6000,
+          "Render → patriotic-app → Environment → add NEXT_PUBLIC_GOOGLE_CLIENT_ID → Save → Manual Deploy → Clear build cache & deploy.",
+        duration: 10000,
       });
       return;
     }
@@ -82,10 +84,24 @@ export function GoogleSignInButton({
         registered automatically.
       </p>
       {enabled === false && (
-        <p className="text-[11px] text-center text-amber-600 dark:text-amber-400">
-          Google button needs <code className="text-[10px]">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>{" "}
-          in environment settings.
-        </p>
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
+          <p className="font-semibold">Google is not connected on this server yet</p>
+          <ol className="list-decimal pl-4 space-y-0.5 text-left">
+            <li>Open Render → your service → <strong>Environment</strong></li>
+            <li>
+              Add key <code className="bg-black/10 px-1 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>
+            </li>
+            <li>Paste the Client ID from Google Cloud (ends with .apps.googleusercontent.com)</li>
+            <li>
+              Also set <code className="bg-black/10 px-1 rounded">NEXT_PUBLIC_APP_URL</code> ={" "}
+              <code className="bg-black/10 px-1 rounded">https://patriotic-app.onrender.com</code>
+            </li>
+            <li>
+              <strong>Manual Deploy</strong> → Clear build cache &amp; deploy (required for NEXT_PUBLIC_ vars)
+            </li>
+          </ol>
+          {hint && <p className="opacity-80 pt-1">Server says: {hint}</p>}
+        </div>
       )}
     </div>
   );

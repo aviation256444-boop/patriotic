@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getGoogleClientId,
   isGoogleOAuthConfigured,
   loginWithGoogleIdToken,
 } from "@/lib/auth/google-oauth";
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Google sign-in is not set up. Add NEXT_PUBLIC_GOOGLE_CLIENT_ID, or use Continue with Email.",
+            "Google sign-in is not set up. In Render → Environment add NEXT_PUBLIC_GOOGLE_CLIENT_ID = your Client ID, then Manual Deploy → Clear build cache & deploy.",
         },
         { status: 503 }
       );
@@ -34,10 +35,13 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
+  const id = getGoogleClientId();
   return NextResponse.json({
-    enabled: isGoogleOAuthConfigured(),
-    clientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
-      ? "configured"
-      : null,
+    enabled: Boolean(id),
+    clientId: id ? "configured" : null,
+    /** Safe hint only — never return the full secret client secret; client id is public */
+    hint: id
+      ? `${id.slice(0, 12)}…`
+      : "Missing NEXT_PUBLIC_GOOGLE_CLIENT_ID on server",
   });
 }

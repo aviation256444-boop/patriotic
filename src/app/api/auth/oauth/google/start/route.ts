@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { getGoogleClientId } from "@/lib/auth/google-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +9,16 @@ export const dynamic = "force-dynamic";
  * Redirects to Google account picker (all Gmail accounts on the device).
  */
 export async function GET(request: Request) {
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+  const clientId = getGoogleClientId();
   if (!clientId) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      new URL(request.url).origin ||
+      "http://localhost:3000";
     return NextResponse.redirect(
       new URL(
         `/auth/login?google_error=${encodeURIComponent(
-          "Google sign-in is not configured yet. Add NEXT_PUBLIC_GOOGLE_CLIENT_ID."
+          "Add NEXT_PUBLIC_GOOGLE_CLIENT_ID in Render Environment, then Manual Deploy (Clear build cache)."
         )}`,
         appUrl
       )

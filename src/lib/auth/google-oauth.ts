@@ -18,11 +18,21 @@ type GoogleTokenInfo = {
   error_description?: string;
 };
 
+/** Client ID from Render env (either name works). */
+export function getGoogleClientId(): string {
+  return (
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_OAUTH_CLIENT_ID ||
+    ""
+  ).trim();
+}
+
 export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+  const clientId = getGoogleClientId();
   if (!clientId) {
     throw new Error(
-      "Google sign-in is not configured. Set NEXT_PUBLIC_GOOGLE_CLIENT_ID."
+      "Google sign-in is not configured. In Render → Environment add NEXT_PUBLIC_GOOGLE_CLIENT_ID, then Manual Deploy (Clear build cache)."
     );
   }
   if (!idToken || idToken.length < 20) {
@@ -75,5 +85,5 @@ export async function loginWithGoogleIdToken(idToken: string): Promise<User> {
 }
 
 export function isGoogleOAuthConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+  return Boolean(getGoogleClientId());
 }
