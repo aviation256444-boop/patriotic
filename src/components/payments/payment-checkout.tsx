@@ -142,7 +142,8 @@ function isValidUgMomoPhone(raw: string): boolean {
 }
 
 const POLL_MS = 3000;
-const MAX_POLLS = 40; // ~2 minutes
+/** ~5 minutes — mobile money PIN prompts can take a while */
+const MAX_POLLS = 100;
 
 export function PaymentCheckout({
   amount,
@@ -205,6 +206,7 @@ export function PaymentCheckout({
     webPaymentsReady: boolean;
     chargeReady: boolean;
   } | null>(null);
+  const [pawaReady, setPawaReady] = useState<boolean | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const finishedRef = useRef(false);
 
@@ -217,6 +219,14 @@ export function PaymentCheckout({
       })
       .catch(() => {
         if (!cancelled) setSquareCfg(null);
+      });
+    void fetch("/api/payments/pawapay/config")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setPawaReady(Boolean(d.ready && d.hasToken));
+      })
+      .catch(() => {
+        if (!cancelled) setPawaReady(null);
       });
     return () => {
       cancelled = true;
@@ -415,7 +425,7 @@ export function PaymentCheckout({
         if (n >= MAX_POLLS) {
           stopPolling();
           setAwaitMsg(
-            "Still waiting. If you approved on the phone, tap “Check again”. If not, try again with the same number."
+            "Still waiting after several minutes. If you already approved on the phone, tap “I approved — check again”. If the prompt never appeared, cancel and try again with the correct number."
           );
           return;
         }
@@ -867,6 +877,17 @@ export function PaymentCheckout({
                 MTN MoMo. We send a charge request to your number — approve with your PIN on the
                 phone. No card details needed.
               </p>
+              {pawaReady === true && (
+                <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                  Live mobile money is ready on this server.
+                </p>
+              )}
+              {pawaReady === false && (
+                <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  Live PawaPay is not fully configured yet. Mobile money may fail until the API
+                  token is set on the server.
+                </p>
+              )}
             </div>
           </div>
 

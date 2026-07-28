@@ -18,6 +18,7 @@ import {
 import { shouldUsePawaPay, getPawaPayEnv, getPawaPayCurrency } from "@/lib/pawapay/config";
 import { initiateDeposit } from "@/lib/pawapay/deposits";
 import type { PaymentGateway } from "@/lib/payments/types";
+import { isPaymentDemoAllowed } from "@/lib/payments/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +45,20 @@ export async function POST(request: Request) {
     const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
 
     if (!amount || amount < 500) {
-      return NextResponse.json({ error: "Minimum amount is 500" }, { status: 400 });
+      return NextResponse.json({ error: "Minimum amount is UGX 500" }, { status: 400 });
+    }
+    if (amount > 5_000_000) {
+      return NextResponse.json(
+        { error: "Maximum amount is UGX 5,000,000 per payment" },
+        { status: 400 }
+      );
     }
 
     if ((gateway === "mtn_momo" || gateway === "airtel_money") && body.requirePhone && !phone) {
       return NextResponse.json({ error: "Phone number required for mobile money" }, { status: 400 });
     }
+
+    const allowDemo = isPaymentDemoAllowed();
 
     const externalId = `PYU-${purpose.toUpperCase()}-${Date.now()}-${Math.random()
       .toString(36)
@@ -123,6 +132,16 @@ export async function POST(request: Request) {
     } else if (gateway === "mtn_momo" && phone && isMomoEnabled()) {
       // Fallback: direct MTN Collections
       if (!hasCollectionsCredentials()) {
+        if (!allowDemo) {
+          return NextResponse.json(
+            {
+              error:
+                "Live mobile money is not configured. Set PAWAPAY_API_TOKEN on the server (Render Environment), then redeploy.",
+              code: "PAYMENT_NOT_CONFIGURED",
+            },
+            { status: 503 }
+          );
+        }
         providerRef = `MOMO-DEMO-${Date.now()}`;
         demoMode = true;
         liveCharge = false;
@@ -170,12 +189,32 @@ export async function POST(request: Request) {
         }
       }
     } else if (gateway === "mtn_momo") {
+      if (!allowDemo) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not start live MTN payment. Add PAWAPAY_API_TOKEN and ensure PawaPay is enabled, then try again with a valid MTN number.",
+            code: "PAYMENT_NOT_CONFIGURED",
+          },
+          { status: 503 }
+        );
+      }
       providerRef = `MOMO-DEMO-${Date.now()}`;
       provider = "momo";
       providerMessage =
         "MTN MoMo demo — enter PIN on the next screen to simulate a successful charge.";
     } else if (gateway === "airtel_money" && phone && isAirtelEnabled()) {
       if (!hasAirtelCredentials()) {
+        if (!allowDemo) {
+          return NextResponse.json(
+            {
+              error:
+                "Live mobile money is not configured. Set PAWAPAY_API_TOKEN on the server (Render Environment), then redeploy.",
+              code: "PAYMENT_NOT_CONFIGURED",
+            },
+            { status: 503 }
+          );
+        }
         providerRef = `AIRTEL-DEMO-${Date.now()}`;
         demoMode = true;
         liveCharge = false;
@@ -223,6 +262,16 @@ export async function POST(request: Request) {
         }
       }
     } else if (gateway === "airtel_money") {
+      if (!allowDemo) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not start live Airtel payment. Add PAWAPAY_API_TOKEN and try again with a valid Airtel number.",
+            code: "PAYMENT_NOT_CONFIGURED",
+          },
+          { status: 503 }
+        );
+      }
       providerRef = `AIRTEL-DEMO-${Date.now()}`;
       demoMode = true;
       provider = "airtel";
@@ -236,7 +285,7 @@ export async function POST(request: Request) {
       providerMessage =
         "Enter your card securely via Square. Payment is confirmed before the success page.";
     } else if (gateway === "bank") {
-      providerRef = `BANK-DEMO-${Date.now()}`;
+      providerRef = `BANK-${Date.now()}`;
       demoMode = true;
       provider = "bank";
       providerMessage = "Bank transfer recorded as pending until admin confirms.";

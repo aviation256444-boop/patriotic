@@ -4,6 +4,7 @@ import { getRequestToPayStatus } from "@/lib/momo/collections";
 import { getAirtelPaymentStatus } from "@/lib/airtel/collections";
 import { getDepositStatus, toCheckoutStatus } from "@/lib/pawapay/deposits";
 import type { CmsDonation } from "@/lib/cms/types";
+import { isPaymentDemoAllowed } from "@/lib/payments/demo";
 
 export const dynamic = "force-dynamic";
 
@@ -308,9 +309,44 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── Demo / card / bank / Airtel demo ──────────────────────────────
+    // ── Demo / card / bank ────────────────────────────────────────────
+    // Production: never mark live mobile money as paid without provider SUCCESS
+    const isMobileMoney = gateway === "mtn_momo" || gateway === "airtel_money";
+    if (
+      isMobileMoney &&
+      !donation.demoMode &&
+      donation.liveCharge &&
+      (statusIn === "completed" || statusIn === "successful") &&
+      !body.poll
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Live mobile money must be confirmed by PawaPay / network status, not the browser.",
+          status: "pending",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      isMobileMoney &&
+      (statusIn === "completed" || statusIn === "successful") &&
+      !isPaymentDemoAllowed() &&
+      (donation.demoMode || !donation.liveCharge)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Demo payments are disabled on this server. Configure PAWAPAY_API_TOKEN for live charges.",
+          code: "DEMO_DISABLED",
+        },
+        { status: 403 }
+      );
+    }
+
     if (statusIn === "completed" || statusIn === "successful") {
-      if (gateway === "mtn_momo" || gateway === "airtel_money") {
+      if (isMobileMoney) {
         if (body.requirePin === true || (pin && pin.length > 0)) {
           if (!/^\d{4,5}$/.test(pin)) {
             return NextResponse.json(
@@ -327,6 +363,11 @@ export async function POST(request: Request) {
 
     if (statusIn === "completed" || statusIn === "successful") {
       finalStatus = "completed";
+    }
+
+    // Bank transfers stay pending unless admin later marks them completed
+    if (gateway === "bank" && statusIn !== "failed") {
+      finalStatus = "pending";
     }
 
     const updated = await upsertItem(

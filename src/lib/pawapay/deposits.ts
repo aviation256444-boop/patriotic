@@ -103,8 +103,25 @@ function authHeaders(): Record<string, string> {
  * Initiate a deposit. Customer gets PIN prompt (production) or
  * auto-resolves from sandbox test MSISDN.
  */
+/**
+ * Format amount for PawaPay.
+ * Uganda MTN_MOMO_UGA expects 2 decimal places; Airtel UGX does not support decimals.
+ * Min deposit (from active-conf): 500 UGX, max 5_000_000.
+ */
+export function formatPawaPayAmount(
+  amount: number,
+  gateway: PawaPayGateway
+): string {
+  const n = Math.round(Number(amount));
+  if (!Number.isFinite(n) || n < 1) return "";
+  if (gateway === "mtn_momo") {
+    return n.toFixed(2); // e.g. 10000.00
+  }
+  return String(n);
+}
+
 export async function initiateDeposit(input: DepositInput): Promise<DepositResult> {
-  const amountStr = String(Math.round(Number(input.amount)));
+  const amountStr = formatPawaPayAmount(input.amount, input.gateway);
   const currency = (input.currency || getPawaPayCurrency()).toUpperCase();
   const msisdn = normalizePawaPayMsisdn(input.phone);
   const depositId =
@@ -117,7 +134,13 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
   if (!amountStr || Number(amountStr) < 1) {
     return { ok: false, error: "Invalid amount" };
   }
-  if (!msisdn || msisdn.length < 11) {
+  if (Number(amountStr) < 500) {
+    return { ok: false, error: "Minimum mobile money amount is UGX 500" };
+  }
+  if (Number(amountStr) > 5_000_000) {
+    return { ok: false, error: "Maximum mobile money amount is UGX 5,000,000" };
+  }
+  if (!msisdn || msisdn.length < 11 || msisdn.length > 15) {
     return { ok: false, error: "Invalid phone number (use e.g. 0772 123 456)" };
   }
 
@@ -135,6 +158,16 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
     };
   }
 
+  // Metadata: short, alphanumeric field names; values max ~64 chars
+  const safeMeta = (input.metadata || [])
+    .filter((m) => m.fieldName && m.fieldValue)
+    .slice(0, 5)
+    .map((m) => ({
+      fieldName: String(m.fieldName).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 32) || "meta",
+      fieldValue: String(m.fieldValue).slice(0, 64),
+      ...(m.isPII ? { isPII: true } : {}),
+    }));
+
   const body = {
     depositId,
     amount: amountStr,
@@ -149,7 +182,7 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
     statementDescription: sanitizeStatement(
       input.statementDescription || "PYU Donation"
     ),
-    metadata: input.metadata,
+    ...(safeMeta.length ? { metadata: safeMeta } : {}),
   };
 
   const url = `${getPawaPayBaseUrl()}/deposits`;
@@ -230,9 +263,16 @@ export async function initiateDeposit(input: DepositInput): Promise<DepositResul
 /** Map PawaPay deposit status → SUCCESSFUL | FAILED | PENDING */
 export function mapPawaPayStatus(status: string): "SUCCESSFUL" | "FAILED" | "PENDING" {
   const s = status.toUpperCase();
-  if (s === "COMPLETED") return "SUCCESSFUL";
-  if (s === "FAILED" || s === "REJECTED") return "FAILED";
-  // ACCEPTED, SUBMITTED, unknown → still waiting
+  if (s === "COMPLETED" || s === "SUCCESSFUL" || s === "SUCCESS") return "SUCCESSFUL";
+  if (
+    s === "FAILED" ||
+    s === "REJECTED" ||
+    s === "CANCELLED" ||
+    s === "CANCELED" ||
+    s === "EXPIRED"
+  )
+    return "FAILED";
+  // ACCEPTED, SUBMITTED, IN_RECONCILIATION, unknown → still waiting
   return "PENDING";
 }
 
@@ -241,11 +281,17 @@ export function mapPawaPayStatus(status: string): "SUCCESSFUL" | "FAILED" | "PEN
  * Works from localhost — your server calls PawaPay, no public callback needed.
  */
 export async function getDepositStatus(depositId: string): Promise<DepositStatusResult> {
+  // Never auto-complete when token missing — prevents false “paid” receipts
   if (!hasPawaPayCredentials()) {
-    return { status: "SUCCESSFUL", raw: { demo: true }, depositId };
+    return {
+      status: "PENDING",
+      error: "PawaPay API token not configured on the server",
+      depositId,
+      raw: { demo: true },
+    };
   }
 
-  if (!depositId || depositId.startsWith("PAWAPAY-DEMO")) {
+  if (!depositId || depositId.startsWith("PAWAPAY-DEMO") || depositId.startsWith("MOMO-DEMO") || depositId.startsWith("AIRTEL-DEMO")) {
     return { status: "PENDING", error: "No live PawaPay deposit id", depositId };
   }
 
