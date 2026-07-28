@@ -13,9 +13,12 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
     serverActions: {
-      bodySizeLimit: "15mb",
+      bodySizeLimit: "25mb",
     },
   },
+  // Allow larger multipart image uploads in App Router route handlers
+  // (client still compresses first — this is headroom for edge cases)
+
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "res.cloudinary.com" },

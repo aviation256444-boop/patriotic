@@ -196,17 +196,32 @@ export function useUploadImage() {
       const file = input instanceof File ? input : input.file;
       const preferInline = input instanceof File ? false : Boolean(input.preferInline);
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name || "image.jpg");
       form.append("actor", actor);
       if (preferInline) form.append("preferInline", "1");
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: form,
-        cache: "no-store",
-      });
+
+      let res: Response;
+      try {
+        res = await fetch("/api/upload", {
+          method: "POST",
+          body: form,
+          cache: "no-store",
+        });
+      } catch {
+        throw new Error(
+          "Network error while uploading. Check your connection and try again."
+        );
+      }
+
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Upload failed" }));
-        throw new Error(err.error || `Upload failed (${res.status})`);
+        const err = await res.json().catch(() => ({
+          error: `Upload failed (${res.status})`,
+        }));
+        throw new Error(
+          err.error ||
+            err.detail ||
+            `Upload failed (${res.status}). Try a smaller JPG.`
+        );
       }
       return res.json() as Promise<{
         url: string;

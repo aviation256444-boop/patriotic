@@ -124,10 +124,22 @@ export function CollectionManager({ collectionKey, schema: schemaProp }: Collect
         }
       }
 
-      // Normalize image fields: strip cache-buster query before storing
-      for (const key of ["photo", "image", "coverImage", "url", "thumbnail", "logo", "avatar", "photoURL"]) {
+      // Normalize image fields: strip cache-buster query — keep data: URLs intact
+      for (const key of [
+        "photo",
+        "image",
+        "coverImage",
+        "url",
+        "thumbnail",
+        "logo",
+        "avatar",
+        "photoURL",
+      ]) {
         if (typeof payload[key] === "string" && payload[key]) {
-          payload[key] = String(payload[key]).split("?")[0];
+          const s = String(payload[key]);
+          if (!s.startsWith("data:")) {
+            payload[key] = s.split("?")[0];
+          }
         }
       }
 

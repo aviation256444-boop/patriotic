@@ -11,8 +11,8 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const MAX_SIZE = 12 * 1024 * 1024; // 12MB
-/** Logos under this size can be inlined as data URLs so they survive Render redeploys */
+/** Accept large phone photos; client compresses first but keep headroom */
+const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 const INLINE_MAX = 450 * 1024;
 
 const EXT_MIME: Record<string, string> = {
@@ -24,9 +24,10 @@ const EXT_MIME: Record<string, string> = {
   svg: "image/svg+xml",
   heic: "image/heic",
   heif: "image/heif",
+  avif: "image/avif",
+  bmp: "image/bmp",
 };
 
-/** Node/undici FormData may return File or Blob depending on runtime */
 function isBlobLike(value: unknown): value is Blob {
   return (
     typeof value === "object" &&
@@ -36,11 +37,14 @@ function isBlobLike(value: unknown): value is Blob {
   );
 }
 
-function detectType(mimeIn: string, fileName: string): { mime: string; ext: string } | null {
-  let mime = mimeIn || "";
+function detectType(
+  mimeIn: string,
+  fileName: string
+): { mime: string; ext: string } | null {
+  let mime = (mimeIn || "").toLowerCase();
   const nameExt = fileName.split(".").pop()?.toLowerCase() || "";
 
-  if (!mime || mime === "application/octet-stream") {
+  if (!mime || mime === "application/octet-stream" || mime === "binary/octet-stream") {
     mime = EXT_MIME[nameExt] || "";
   }
 
@@ -56,7 +60,9 @@ function detectType(mimeIn: string, fileName: string): { mime: string; ext: stri
               ? "gif"
               : mime === "image/svg+xml"
                 ? "svg"
-                : nameExt || "jpg";
+                : mime === "image/avif"
+                  ? "avif"
+                  : nameExt || "jpg";
     return { mime, ext };
   }
 
@@ -67,31 +73,58 @@ function detectType(mimeIn: string, fileName: string): { mime: string; ext: stri
     };
   }
 
+  // Some browsers send empty type — allow common image extensions
+  if (nameExt && ["jpg", "jpeg", "png", "webp", "gif", "svg"].includes(nameExt)) {
+    return {
+      mime: EXT_MIME[nameExt] || "image/jpeg",
+      ext: nameExt === "jpeg" ? "jpg" : nameExt,
+    };
+  }
+
   return null;
 }
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (e) {
+      console.error("formData parse failed", e);
+      return NextResponse.json(
+        {
+          error:
+            "Could not read upload body. Try a smaller JPG/PNG (under 5MB) or paste an image URL.",
+        },
+        { status: 400 }
+      );
+    }
+
     const raw = formData.get("file");
     const actor = String(formData.get("actor") || "admin");
     const preferInline = String(formData.get("preferInline") || "") === "1";
 
     if (!raw || !isBlobLike(raw)) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No file provided — choose an image and try again" },
+        { status: 400 }
+      );
     }
 
     const originalName =
       typeof (raw as File).name === "string" && (raw as File).name
         ? (raw as File).name
-        : "upload.png";
+        : "upload.jpg";
 
     if (raw.size <= 0) {
       return NextResponse.json({ error: "Empty file" }, { status: 400 });
     }
 
     if (raw.size > MAX_SIZE) {
-      return NextResponse.json({ error: "File must be under 12MB" }, { status: 400 });
+      return NextResponse.json(
+        { error: "File must be under 25MB (compress large photos first)" },
+        { status: 400 }
+      );
     }
 
     const typeInfo = detectType(raw.type || "", originalName);
@@ -99,21 +132,44 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Only image files are allowed (JPEG, PNG, WebP, GIF, SVG). Try renaming the file with a proper extension.",
+            "Only image files are allowed (JPEG, PNG, WebP, GIF, SVG). Rename the file with a proper extension if needed.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Reject HEIC on server if not already converted client-side (rare)
+    if (
+      typeInfo.mime.includes("heic") ||
+      typeInfo.mime.includes("heif") ||
+      /\.heic$/i.test(originalName)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "HEIC images are not supported on the server. Open the photo and export as JPG, or use a different image.",
         },
         { status: 400 }
       );
     }
 
     const buffer = Buffer.from(await raw.arrayBuffer());
+    if (!buffer.length) {
+      return NextResponse.json({ error: "Empty image data" }, { status: 400 });
+    }
+
     const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${typeInfo.ext}`;
     let permanentUrl = "";
     let storage: "cloudinary" | "disk" | "inline" = "disk";
 
-    // 1) Prefer Cloudinary when configured
+    // 1) Cloudinary when configured
     if (hasCloudinaryConfig()) {
       try {
-        const cloud = await uploadBufferToCloudinary(buffer, filename, typeInfo.mime);
+        const cloud = await uploadBufferToCloudinary(
+          buffer,
+          filename,
+          typeInfo.mime
+        );
         if (cloud?.url) {
           permanentUrl = cloud.url;
           storage = "cloudinary";
@@ -123,7 +179,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2) Write local disk copy
+    // 2) Local disk (public/uploads)
     try {
       const uploadDir = path.join(process.cwd(), "public", "uploads");
       await fs.mkdir(uploadDir, { recursive: true });
@@ -137,15 +193,27 @@ export async function POST(request: Request) {
       }
     } catch (diskErr) {
       console.error("Disk upload failed", diskErr);
-      if (!permanentUrl && buffer.length <= INLINE_MAX && !typeInfo.mime.includes("svg")) {
+      if (
+        !permanentUrl &&
+        buffer.length <= INLINE_MAX &&
+        !typeInfo.mime.includes("svg")
+      ) {
         permanentUrl = `data:${typeInfo.mime};base64,${buffer.toString("base64")}`;
         storage = "inline";
       } else if (!permanentUrl) {
-        throw diskErr instanceof Error ? diskErr : new Error("Could not save image");
+        return NextResponse.json(
+          {
+            error:
+              "Could not save image to disk. Try a smaller JPG or configure Cloudinary.",
+            detail:
+              diskErr instanceof Error ? diskErr.message : "disk write failed",
+          },
+          { status: 500 }
+        );
       }
     }
 
-    // 3) Small images → data URL for free-host persistence
+    // 3) Optional data URL for small images
     let dataUrl: string | undefined;
     if (buffer.length <= INLINE_MAX && !typeInfo.mime.includes("svg")) {
       dataUrl = `data:${typeInfo.mime};base64,${buffer.toString("base64")}`;
@@ -171,7 +239,7 @@ export async function POST(request: Request) {
             ? permanentUrl.slice(0, 64) + "…"
             : permanentUrl,
           filename,
-          size: raw.size,
+          size: buffer.length,
           type: typeInfo.mime,
           alt: originalName,
         },
@@ -179,6 +247,7 @@ export async function POST(request: Request) {
       );
       mediaId = String(media.id);
     } catch (e) {
+      // Don't fail the whole upload if media registry fails
       console.error("registerMedia failed", e);
     }
 
@@ -188,7 +257,7 @@ export async function POST(request: Request) {
         permanentUrl,
         dataUrl,
         filename,
-        size: raw.size,
+        size: buffer.length,
         type: typeInfo.mime,
         mediaId,
         storage,
@@ -199,7 +268,12 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Upload error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Upload failed — try JPG under 5MB or paste a link",
+      },
       { status: 500 }
     );
   }
@@ -215,17 +289,31 @@ export async function GET() {
         files
           .filter((f) => /\.(jpe?g|png|webp|gif|svg)$/i.test(f))
           .map(async (f) => {
-            const st = await fs.stat(path.join(uploadDir, f));
-            return {
-              id: f,
-              filename: f,
-              url: `/uploads/${f}`,
-              size: st.size,
-              createdAt: st.mtime.toISOString(),
-            };
+            try {
+              const st = await fs.stat(path.join(uploadDir, f));
+              return {
+                id: f,
+                filename: f,
+                url: `/uploads/${f}`,
+                size: st.size,
+                createdAt: st.mtime.toISOString(),
+              };
+            } catch {
+              return null;
+            }
           })
       )
-    ).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    )
+      .filter(Boolean)
+      .sort((a, b) =>
+        (a!.createdAt < b!.createdAt ? 1 : -1)
+      ) as {
+      id: string;
+      filename: string;
+      url: string;
+      size: number;
+      createdAt: string;
+    }[];
 
     return NextResponse.json(images, {
       headers: { "Cache-Control": "no-store" },

@@ -5,7 +5,11 @@ import { Upload, X, Link as LinkIcon, Loader2, Images } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUploadImage, useCmsCollection } from "@/hooks/use-cms";
 import { mediaUrl } from "@/lib/cms/media-url";
-import { compressImageForUpload } from "@/lib/upload/compress-image";
+import {
+  compressImageForUpload,
+  COMPRESS_PRESETS,
+  type CompressOptions,
+} from "@/lib/upload/compress-image";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { MediaItem } from "@/lib/cms/types";
@@ -17,9 +21,11 @@ interface ImageUploadProps {
   className?: string;
   /**
    * Prefer embedding small images as data URLs so they survive host redeploys
-   * (important for site logo / hero on free Render).
+   * (logos / hero / og on free Render).
    */
   preferInline?: boolean;
+  /** Compression preset — content (events/news) vs logo vs hero */
+  compressPreset?: keyof typeof COMPRESS_PRESETS;
   /** Fired after a successful upload with the final URL that was applied */
   onUploaded?: (url: string) => void;
 }
@@ -29,12 +35,18 @@ function stripQuery(url: string) {
   return url.split("?")[0];
 }
 
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  return /\.(jpe?g|png|webp|gif|svg|heic|heif|avif|bmp)$/i.test(file.name);
+}
+
 export function ImageUpload({
   value,
   onChange,
   label,
   className,
   preferInline = false,
+  compressPreset,
   onUploaded,
 }: ImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +61,12 @@ export function ImageUpload({
   const [dragOver, setDragOver] = useState(false);
   const [broken, setBroken] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
+  const [statusText, setStatusText] = useState("");
+
+  const presetKey =
+    compressPreset || (preferInline ? "logo" : "content");
+  const compressOpts: CompressOptions =
+    COMPRESS_PRESETS[presetKey] || COMPRESS_PRESETS.content;
 
   useEffect(() => {
     setUrlInput(value || "");
@@ -80,35 +98,34 @@ export function ImageUpload({
   const handleFile = useCallback(
     async (file: File) => {
       if (!file) return;
-      if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|gif|svg)$/i.test(file.name)) {
+      if (!isImageFile(file)) {
         toast.error("Please choose an image file (JPG, PNG, WebP, GIF, SVG)");
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        toast.error("Image is too large (max 25MB before compression)");
         return;
       }
 
       setLocalBusy(true);
+      setStatusText("Preparing image…");
       try {
-        // Compress large logos so they can be stored as durable data URLs
-        let toUpload = file;
-        let clientDataUrl: string | undefined;
+        // ALWAYS compress — large event/news photos were failing raw upload
+        toast.message("Preparing image…", {
+          description: "Resizing so upload works reliably on any host.",
+        });
 
-        if (preferInline) {
-          toast.message("Preparing logo…", {
-            description: "Resizing large images so they stay on the site permanently.",
-          });
-          const compressed = await compressImageForUpload(file, {
-            maxEdge: 640,
-            maxBytes: 320 * 1024,
-          });
-          toUpload = compressed.file;
-          clientDataUrl = compressed.dataUrl;
+        const compressed = await compressImageForUpload(file, compressOpts);
+        const toUpload = compressed.file;
+        const clientDataUrl = compressed.dataUrl;
 
-          // Apply immediately so UI updates even if network is slow
-          if (clientDataUrl) {
-            applyUrl(clientDataUrl);
-          }
+        // Instant preview for logos / small content fallbacks
+        if (preferInline && clientDataUrl) {
+          applyUrl(clientDataUrl);
         }
 
-        let permanent = clientDataUrl || "";
+        setStatusText("Uploading…");
+        let permanent = "";
 
         try {
           const result = await upload.mutateAsync({
@@ -117,15 +134,17 @@ export function ImageUpload({
           });
 
           if (preferInline && (result.dataUrl || clientDataUrl)) {
-            permanent = result.dataUrl || clientDataUrl || permanent;
+            permanent = result.dataUrl || clientDataUrl || "";
           } else {
             permanent =
               result.permanentUrl ||
               stripQuery(result.url) ||
               result.dataUrl ||
-              clientDataUrl ||
-              permanent;
+              "";
           }
+
+          // Last-resort client fallback if server returned empty
+          if (!permanent && clientDataUrl) permanent = clientDataUrl;
 
           if (!permanent) throw new Error("Upload returned no URL");
 
@@ -136,21 +155,33 @@ export function ImageUpload({
             result.storage === "cloudinary"
               ? "Cloudinary (permanent)"
               : permanent.startsWith("data:")
-                ? "saved inside site settings (survives redeploy)"
+                ? "embedded in the form (survives free-host redeploys)"
                 : "saved on this server";
 
           toast.success("Image uploaded", {
             description: preferInline
-              ? `${where}. Publishing to the live site…`
-              : `${where}. Click Save if this form has a Save button.`,
+              ? `${where}. Publishing…`
+              : `${where}. Click Save on this form to publish.`,
           });
         } catch (uploadErr) {
-          // Server upload failed — still keep client data URL for logos
-          if (preferInline && clientDataUrl) {
+          // Server failed — still succeed when we have a usable client image
+          if (clientDataUrl) {
             applyUrl(clientDataUrl);
-            toast.success("Logo ready", {
+            toast.success("Image ready", {
               description:
-                "Saved in the browser as an embedded image. Publishing to site settings…",
+                "Server upload had a problem, but the image was embedded in the form. Click Save to keep it.",
+            });
+          } else if (toUpload && toUpload.size < 450 * 1024) {
+            // Tiny compressed file → data URL without server
+            const reader = new FileReader();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(new Error("encode failed"));
+              reader.readAsDataURL(toUpload);
+            });
+            applyUrl(dataUrl);
+            toast.success("Image ready (offline fallback)", {
+              description: "Click Save on this form to keep it.",
             });
           } else {
             throw uploadErr;
@@ -158,12 +189,16 @@ export function ImageUpload({
         }
       } catch (e) {
         console.error(e);
-        toast.error(e instanceof Error ? e.message : "Upload failed");
+        toast.error(e instanceof Error ? e.message : "Upload failed", {
+          description:
+            "Try JPG/PNG under 10MB. If it still fails, paste an image link instead.",
+        });
       } finally {
         setLocalBusy(false);
+        setStatusText("");
       }
     },
-    [upload, refetchMedia, preferInline, applyUrl]
+    [upload, refetchMedia, preferInline, applyUrl, compressOpts]
   );
 
   const busy = upload.isPending || localBusy;
@@ -196,7 +231,7 @@ export function ImageUpload({
         <div className="relative rounded-xl overflow-hidden border border-border/50 group bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            key={displaySrc.slice(0, 64)}
+            key={displaySrc.slice(0, 80)}
             src={displaySrc}
             alt="Preview"
             className={cn(
@@ -207,13 +242,13 @@ export function ImageUpload({
             onLoad={() => setBroken(false)}
           />
           {broken && (
-            <p className="absolute inset-0 flex items-center justify-center text-xs text-red-600 font-medium bg-red-500/10">
-              Image failed to load — re-upload
+            <p className="absolute inset-0 flex items-center justify-center text-xs text-red-600 font-medium bg-red-500/10 px-4 text-center">
+              Image failed to load — re-upload or use Paste link
             </p>
           )}
           <div className="absolute bottom-0 inset-x-0 bg-black/60 px-3 py-1.5 text-[10px] text-white/80 truncate">
             {value.startsWith("data:")
-              ? "embedded image (stays after redeploy)"
+              ? "embedded image (saved with form)"
               : stripQuery(value)}
           </div>
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -268,7 +303,9 @@ export function ImageUpload({
             {busy ? (
               <>
                 <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
-                <span className="text-sm font-medium text-emerald-600">Uploading…</span>
+                <span className="text-sm font-medium text-emerald-600">
+                  {statusText || "Uploading…"}
+                </span>
               </>
             ) : (
               <>
@@ -276,7 +313,9 @@ export function ImageUpload({
                   <Upload className="h-7 w-7" />
                 </div>
                 <span className="text-sm font-semibold">Click to upload image</span>
-                <span className="text-xs">or drag & drop · JPG, PNG, WebP · max 12MB</span>
+                <span className="text-xs">
+                  or drag & drop · JPG, PNG, WebP · auto-resized
+                </span>
               </>
             )}
           </button>
@@ -286,7 +325,7 @@ export function ImageUpload({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.svg"
+        accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.svg,.heic,.heif,.avif"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -377,7 +416,12 @@ export function ImageUpload({
             type="button"
             size="sm"
             onClick={() => {
-              applyUrl(urlInput.trim());
+              const u = urlInput.trim();
+              if (!u) {
+                toast.error("Paste an image URL first");
+                return;
+              }
+              applyUrl(u);
               toast.success("Image URL set");
             }}
           >

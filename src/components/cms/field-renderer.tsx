@@ -37,11 +37,17 @@ export function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
   }
 
   if (field.type === "image") {
-    // Logos & site images: prefer data URL / permanent storage so free hosts keep them
+    // Logos / hero: embed small data URLs so free hosts keep them after redeploy
     const preferInline =
       field.key === "logoUrl" ||
       field.key === "heroImage" ||
       field.key === "ogImage";
+    const compressPreset =
+      field.key === "logoUrl"
+        ? ("logo" as const)
+        : field.key === "heroImage" || field.key === "ogImage"
+          ? ("hero" as const)
+          : ("content" as const);
     return (
       <div className="space-y-1">
         <ImageUpload
@@ -49,10 +55,13 @@ export function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
           value={typeof value === "string" ? value : ""}
           onChange={(url) => onChange(url)}
           preferInline={preferInline}
+          compressPreset={compressPreset}
         />
         {field.help && <p className="text-xs text-muted-foreground">{field.help}</p>}
         {field.required && !value && (
-          <p className="text-xs text-amber-600">Upload an image or pick from the Media Library (required).</p>
+          <p className="text-xs text-amber-600">
+            Upload an image or pick from the Media Library (required). Large photos are auto-resized.
+          </p>
         )}
       </div>
     );

@@ -1,10 +1,13 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Plus, X, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useUploadImage } from "@/hooks/use-cms";
 import { mediaUrl } from "@/lib/cms/media-url";
+import {
+  compressImageForUpload,
+  COMPRESS_PRESETS,
+} from "@/lib/upload/compress-image";
 import { toast } from "sonner";
 
 interface MultiImageUploadProps {
@@ -14,29 +17,64 @@ interface MultiImageUploadProps {
 }
 
 function stripQuery(url: string) {
+  if (!url || url.startsWith("data:")) return url || "";
   return url.split("?")[0];
 }
 
 export function MultiImageUpload({ value, onChange, label }: MultiImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadImage();
+  const [busy, setBusy] = useState(false);
   const images = Array.isArray(value) ? value.filter(Boolean) : [];
 
   const addFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (!list.length) return;
+    setBusy(true);
     const urls = [...images];
+    let ok = 0;
     for (const file of list) {
       try {
-        const result = await upload.mutateAsync(file);
-        const permanent = result.permanentUrl || stripQuery(result.url);
-        urls.push(permanent);
+        if (!file.type.startsWith("image/") && !/\.(jpe?g|png|webp|gif|svg)$/i.test(file.name)) {
+          toast.error(`Skipped ${file.name}: not an image`);
+          continue;
+        }
+        const compressed = await compressImageForUpload(
+          file,
+          COMPRESS_PRESETS.content
+        );
+        try {
+          const result = await upload.mutateAsync({
+            file: compressed.file,
+            preferInline: false,
+          });
+          const permanent =
+            result.permanentUrl ||
+            stripQuery(result.url) ||
+            result.dataUrl ||
+            compressed.dataUrl;
+          if (!permanent) throw new Error("No URL");
+          urls.push(permanent);
+          ok += 1;
+        } catch {
+          if (compressed.dataUrl) {
+            urls.push(compressed.dataUrl);
+            ok += 1;
+          } else {
+            toast.error(`Failed: ${file.name}`);
+          }
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : `Failed: ${file.name}`);
       }
     }
     onChange(urls);
-    toast.success(`${list.length} image(s) uploaded`);
+    setBusy(false);
+    if (ok > 0) {
+      toast.success(`${ok} image(s) uploaded`, {
+        description: "Click Save on this form to publish.",
+      });
+    }
   };
 
   return (
@@ -44,9 +82,16 @@ export function MultiImageUpload({ value, onChange, label }: MultiImageUploadPro
       {label && <label className="text-sm font-medium text-foreground/80">{label}</label>}
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {images.map((src, i) => (
-          <div key={`${src}-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-border/50 group">
+          <div
+            key={`${src.slice(0, 40)}-${i}`}
+            className="relative aspect-square rounded-xl overflow-hidden border border-border/50 group"
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={mediaUrl(src, i)} alt="" className="h-full w-full object-cover" />
+            <img
+              src={src.startsWith("data:") ? src : mediaUrl(src, i)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
             <button
               type="button"
               onClick={() => onChange(images.filter((_, idx) => idx !== i))}
@@ -60,10 +105,10 @@ export function MultiImageUpload({ value, onChange, label }: MultiImageUploadPro
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          disabled={upload.isPending}
+          disabled={busy || upload.isPending}
           className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-emerald-500/50 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-emerald-600 transition-colors"
         >
-          {upload.isPending ? (
+          {busy || upload.isPending ? (
             <Loader2 className="h-6 w-6 animate-spin" />
           ) : (
             <>
@@ -76,16 +121,16 @@ export function MultiImageUpload({ value, onChange, label }: MultiImageUploadPro
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.svg"
         multiple
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) addFiles(e.target.files);
+          if (e.target.files) void addFiles(e.target.files);
           e.target.value = "";
         }}
       />
       <p className="text-xs text-muted-foreground">
-        Upload one or more images. They appear on the live site after you save.
+        Images are auto-resized before upload. Save the form to publish them on the live site.
       </p>
     </div>
   );

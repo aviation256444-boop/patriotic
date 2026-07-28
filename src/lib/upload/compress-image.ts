@@ -1,15 +1,27 @@
 /**
- * Browser-side image compression so logos fit as durable data URLs
- * (survives free-host redeploys when stored in cms-db.json).
+ * Browser-side image compression for every CMS upload (events, news, logos, …).
+ * Large phone photos often fail raw upload on free hosts — always resize first.
  */
 
 export type CompressOptions = {
-  /** Longest side in pixels (default 640 — plenty for header logo) */
+  /** Longest side in pixels */
   maxEdge?: number;
-  /** Target max file size in bytes (default ~320KB) */
+  /** Target max file size in bytes */
   maxBytes?: number;
-  /** Output MIME (default image/webp, falls back to jpeg) */
+  /** Output MIME (default image/jpeg — widest support) */
   mime?: "image/webp" | "image/jpeg" | "image/png";
+  /** File name suffix */
+  nameHint?: string;
+};
+
+/** Presets used across the site */
+export const COMPRESS_PRESETS = {
+  /** Header / footer logo */
+  logo: { maxEdge: 640, maxBytes: 320 * 1024, nameHint: "logo" } as CompressOptions,
+  /** Hero / OG social images */
+  hero: { maxEdge: 1600, maxBytes: 700 * 1024, nameHint: "hero" } as CompressOptions,
+  /** Event covers, news, programs, leaders, gallery, projects… */
+  content: { maxEdge: 1600, maxBytes: 900 * 1024, nameHint: "image" } as CompressOptions,
 };
 
 function loadImage(file: Blob): Promise<HTMLImageElement> {
@@ -22,7 +34,11 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Could not read image — try JPG or PNG"));
+      reject(
+        new Error(
+          "Could not read this image. Export as JPG or PNG (HEIC from iPhone often needs conversion)."
+        )
+      );
     };
     img.src = url;
   });
@@ -55,31 +71,34 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * Resize + compress an image for logo / hero use.
- * Returns a smaller File + optional data URL when under maxBytes.
+ * Resize + compress an image for reliable upload.
+ * Returns a smaller File and a data URL when still reasonably small.
  */
 export async function compressImageForUpload(
   file: File,
   options: CompressOptions = {}
 ): Promise<{ file: File; dataUrl?: string; compressed: boolean }> {
-  const maxEdge = options.maxEdge ?? 640;
-  const maxBytes = options.maxBytes ?? 320 * 1024;
-  let mime: string = options.mime || "image/webp";
+  const maxEdge = options.maxEdge ?? COMPRESS_PRESETS.content.maxEdge!;
+  const maxBytes = options.maxBytes ?? COMPRESS_PRESETS.content.maxBytes!;
+  const nameHint = options.nameHint || "image";
+  // Prefer JPEG for compatibility + size (PNG only if already tiny PNG with transparency needs)
+  let mime: string = options.mime || "image/jpeg";
 
-  // SVG stays as-is (tiny & lossless)
+  // SVG stays as-is
   if (
     file.type === "image/svg+xml" ||
     file.name.toLowerCase().endsWith(".svg")
   ) {
     const dataUrl =
-      file.size <= maxBytes ? await blobToDataUrl(file) : undefined;
+      file.size <= 200 * 1024 ? await blobToDataUrl(file) : undefined;
     return { file, dataUrl, compressed: false };
   }
 
-  // Already small enough — keep original but still produce data URL
-  if (file.size <= maxBytes && file.type.startsWith("image/")) {
+  // Already small enough — still produce dataUrl for fallback
+  if (file.size <= maxBytes && file.type.startsWith("image/") && !/heic|heif/i.test(file.type + file.name)) {
     try {
-      const dataUrl = await blobToDataUrl(file);
+      const dataUrl =
+        file.size <= 450 * 1024 ? await blobToDataUrl(file) : undefined;
       return { file, dataUrl, compressed: false };
     } catch {
       return { file, compressed: false };
@@ -103,56 +122,67 @@ export async function compressImageForUpload(
     const ctx = canvas.getContext("2d");
     if (!ctx) return { file, compressed: false };
 
-    // White background for JPEG (no transparency)
-    if (mime === "image/jpeg") {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, width, height);
-    }
+    // White background — JPEG cannot keep transparency
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
     ctx.drawImage(img, 0, 0, width, height);
 
-    let quality = 0.88;
-    let blob = await canvasToBlob(canvas, mime, quality).catch(async () => {
-      // WebP unsupported → JPEG
+    let quality = 0.85;
+    let blob: Blob;
+    try {
+      blob = await canvasToBlob(canvas, mime, quality);
+    } catch {
       mime = "image/jpeg";
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      return canvasToBlob(canvas, mime, quality);
-    });
+      blob = await canvasToBlob(canvas, mime, quality);
+    }
 
     // Step quality down until under maxBytes
-    while (blob.size > maxBytes && quality > 0.45) {
-      quality -= 0.1;
+    while (blob.size > maxBytes && quality > 0.4) {
+      quality -= 0.08;
       blob = await canvasToBlob(canvas, mime, quality);
     }
 
     // Still huge? shrink dimensions further
-    if (blob.size > maxBytes) {
+    let current = canvas;
+    let guard = 0;
+    while (blob.size > maxBytes && guard < 4) {
+      guard += 1;
       const smaller = document.createElement("canvas");
-      const w2 = Math.max(64, Math.round(width * 0.65));
-      const h2 = Math.max(64, Math.round(height * 0.65));
+      const w2 = Math.max(48, Math.round(current.width * 0.7));
+      const h2 = Math.max(48, Math.round(current.height * 0.7));
       smaller.width = w2;
       smaller.height = h2;
       const c2 = smaller.getContext("2d");
-      if (c2) {
-        if (mime === "image/jpeg") {
-          c2.fillStyle = "#ffffff";
-          c2.fillRect(0, 0, w2, h2);
-        }
-        c2.drawImage(canvas, 0, 0, w2, h2);
-        blob = await canvasToBlob(smaller, mime, 0.75);
-      }
+      if (!c2) break;
+      c2.fillStyle = "#ffffff";
+      c2.fillRect(0, 0, w2, h2);
+      c2.drawImage(current, 0, 0, w2, h2);
+      blob = await canvasToBlob(smaller, mime, 0.78);
+      current = smaller;
     }
 
     const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-    const base = file.name.replace(/\.[^.]+$/, "") || "logo";
-    const outFile = new File([blob], `${base}-logo.${ext}`, { type: mime });
+    const base =
+      file.name.replace(/\.[^.]+$/, "").replace(/[^\w\-]+/g, "-").slice(0, 40) ||
+      nameHint;
+    const outFile = new File([blob], `${base}-${nameHint}.${ext}`, {
+      type: mime,
+      lastModified: Date.now(),
+    });
+
+    // data URL only when small enough to store safely in JSON / form state
     const dataUrl =
-      blob.size <= maxBytes * 1.15 ? await blobToDataUrl(blob) : undefined;
+      blob.size <= 450 * 1024 ? await blobToDataUrl(blob) : undefined;
 
     return { file: outFile, dataUrl, compressed: true };
   } catch (e) {
-    console.warn("compressImageForUpload failed, using original", e);
-    return { file, compressed: false };
+    console.warn("compressImageForUpload failed", e);
+    // Last resort: try original if under hard limit
+    if (file.size <= 12 * 1024 * 1024) {
+      return { file, compressed: false };
+    }
+    throw e instanceof Error
+      ? e
+      : new Error("Could not prepare image for upload");
   }
 }
