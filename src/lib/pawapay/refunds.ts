@@ -1,9 +1,8 @@
 /**
- * PawaPay refunds — return money from a completed deposit to the ORIGINAL payer.
- * POST /refunds · GET /refunds/{refundId}
+ * PawaPay refunds — POST /refunds · GET /refunds/{refundId}
  *
- * NOTE: Refund is NOT a payout. You cannot choose a different phone number.
- * Money always goes back to the MSISDN that paid the deposit.
+ * PawaPay decides eligibility (deposit completed, already refunded, amount, etc.).
+ * We only need a deposit UUID. Amount is optional (omit = full deposit refund).
  */
 
 import { randomUUID } from "crypto";
@@ -19,10 +18,12 @@ export type RefundInput = {
   refundId?: string;
   /** Original PawaPay deposit UUID */
   depositId: string;
-  /** Optional partial amount (full refund if omitted) */
+  /** Optional partial amount; omit for full refund of the deposit */
   amount?: number;
-  /** Gateway hint for amount decimals (mtn uses 2 places) */
-  gateway?: "mtn_momo" | "airtel_money";
+  /** Gateway hint for amount decimals (mtn uses 2 places). Omit amount when unsure. */
+  gateway?: "mtn_momo" | "airtel_money" | "auto";
+  /** When true, do not send amount — let PawaPay fully refund the deposit */
+  fullRefund?: boolean;
   metadata?: { fieldName: string; fieldValue: string; isPII?: boolean }[];
 };
 
@@ -54,9 +55,10 @@ function authHeaders(): Record<string, string> {
   };
 }
 
+/** Prefer simple integer UGX for refunds (works for Airtel; MTN often accepts too). */
 function formatRefundAmount(
   amount: number,
-  gateway?: "mtn_momo" | "airtel_money"
+  gateway?: "mtn_momo" | "airtel_money" | "auto"
 ): string {
   const n = Math.round(Number(amount));
   if (!Number.isFinite(n) || n < 1) return "";
@@ -74,7 +76,8 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
   if (!depositId || !/^[0-9a-f-]{36}$/i.test(depositId)) {
     return {
       ok: false,
-      error: "Valid depositId (UUID of the original payment) is required for refund",
+      error:
+        "Need a valid PawaPay deposit ID (UUID). Find it on your payment receipt or PawaPay dashboard Deposits.",
       depositId,
       refundId,
     };
@@ -83,7 +86,7 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
   if (!hasPawaPayCredentials()) {
     return {
       ok: false,
-      error: "PawaPay token not configured",
+      error: "PawaPay token not configured on the server",
       depositId,
       refundId,
     };
@@ -94,8 +97,15 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
     depositId,
   };
 
-  if (input.amount != null && Number(input.amount) > 0) {
-    const amountStr = formatRefundAmount(Number(input.amount), input.gateway);
+  // Only attach amount for partial refunds. Full refund = omit amount (PawaPay decides).
+  const wantFull =
+    input.fullRefund === true ||
+    input.amount == null ||
+    !Number.isFinite(Number(input.amount)) ||
+    Number(input.amount) <= 0;
+
+  if (!wantFull) {
+    const amountStr = formatRefundAmount(Number(input.amount), input.gateway || "auto");
     if (amountStr) body.amount = amountStr;
   }
 
@@ -129,6 +139,7 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
     console.error("PawaPay refund HTTP error", res.status, text, {
       env: getPawaPayEnv(),
       depositId,
+      body,
     });
     const msg =
       (json.errorMessage as string) ||
@@ -137,7 +148,7 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
       `Refund failed (${res.status})`;
     return {
       ok: false,
-      error: humanizePawaPayError(String(msg)).slice(0, 500),
+      error: humanizePawaPayError(String(msg)).slice(0, 600),
       refundId,
       depositId,
       raw: json,
@@ -153,9 +164,10 @@ export async function initiateRefund(input: RefundInput): Promise<RefundResult> 
       reason?.rejectionMessage ||
       reason?.rejectionCode ||
       "Refund rejected by PawaPay";
+    // Pass through PawaPay reason clearly (ALREADY_REFUNDED, DEPOSIT_NOT_FOUND, etc.)
     return {
       ok: false,
-      error: humanizePawaPayError(String(msg)),
+      error: `PawaPay: ${String(msg)}`,
       refundId: String(json.refundId || refundId),
       depositId,
       status: "REJECTED",

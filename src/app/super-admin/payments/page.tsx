@@ -177,7 +177,9 @@ export default function SuperAdminPaymentsPage() {
   const [refundingId, setRefundingId] = useState<string | null>(null);
   const [manualRefundPhone, setManualRefundPhone] = useState("");
   const [manualRefundAmount, setManualRefundAmount] = useState("");
+  const [manualRefundDepositId, setManualRefundDepositId] = useState("");
   const [manualRefundNote, setManualRefundNote] = useState("");
+  const [manualFullRefund, setManualFullRefund] = useState(true);
   const [manualRefunding, setManualRefunding] = useState(false);
   const [phoneMatchTotal, setPhoneMatchTotal] = useState<number | null>(null);
   const [lookingUpPhone, setLookingUpPhone] = useState(false);
@@ -318,23 +320,33 @@ export default function SuperAdminPaymentsPage() {
   const submitManualRefund = async () => {
     if (!user) return;
     const p = manualRefundPhone.trim();
+    const depositId = manualRefundDepositId.trim();
     const amt = Math.round(Number(manualRefundAmount));
-    if (!p) {
-      toast.error("Enter the phone number to refund");
+    const useFull = manualFullRefund || !amt;
+
+    if (!depositId && !p) {
+      toast.error("Enter the payer phone number and/or the PawaPay deposit ID");
       return;
     }
-    if (!isValidUgPhone(p)) {
+    if (p && !isValidUgPhone(p) && !depositId) {
       toast.error("Enter a valid UG number (e.g. 0752 123 456)");
       return;
     }
-    if (!amt || amt < 500) {
-      toast.error("Enter amount (minimum UGX 500)");
+    if (!useFull && (!amt || amt < 1)) {
+      toast.error("Enter a valid amount, or tick Full refund");
       return;
     }
 
     const ok = window.confirm(
-      `Send refund of UGX ${amt.toLocaleString()} to ${p}?\n\n` +
-        `This number must be the one that paid. Money returns only to ${p}.`
+      depositId
+        ? `Send refund to PawaPay for deposit:\n${depositId}\n\n` +
+            (useFull ? "Full refund of that deposit.\n" : `Amount: UGX ${amt.toLocaleString()}\n`) +
+            `PawaPay decides if it is eligible. Money goes to the original payer of that deposit.`
+        : `Send refund via PawaPay for phone ${p}?\n\n` +
+            (useFull
+              ? "We will refund the matching payment(s) fully (PawaPay decides eligibility).\n"
+              : `Target amount: UGX ${amt.toLocaleString()}\n`) +
+            `Money returns only to the number that paid each deposit.`
     );
     if (!ok) return;
 
@@ -347,23 +359,29 @@ export default function SuperAdminPaymentsPage() {
           mode: "manual",
           actorId: user.id,
           actorEmail: user.email,
-          phone: p,
-          amount: amt,
-          note: manualRefundNote.trim() || `Manual refund to ${p}`,
+          phone: p || undefined,
+          depositId: depositId || undefined,
+          amount: useFull ? undefined : amt,
+          fullRefund: useFull,
+          note:
+            manualRefundNote.trim() ||
+            (depositId
+              ? `Manual refund deposit ${depositId}`
+              : `Manual refund to ${p}`),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Refund failed");
-      toast.success(
-        data.message ||
-          `Refund of UGX ${(data.refundedTotal || amt).toLocaleString()} sent to ${p}`
-      );
+      toast.success(data.message || "Refund submitted to PawaPay");
       setManualRefundAmount("");
       setManualRefundNote("");
+      setManualRefundDepositId("");
       setPhoneMatchTotal(null);
       void load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Refund failed");
+      toast.error(e instanceof Error ? e.message : "Refund failed", {
+        duration: 8000,
+      });
     } finally {
       setManualRefunding(false);
     }
@@ -391,7 +409,7 @@ export default function SuperAdminPaymentsPage() {
           actorEmail: user.email,
           paymentId: payment.id,
           depositId: payment.depositId,
-          amount: payment.amount,
+          fullRefund: true,
           phone: payment.phone,
           note: `Refund to ${payment.phone}`,
         }),
@@ -475,11 +493,16 @@ export default function SuperAdminPaymentsPage() {
         <div className="rounded-2xl border-2 border-amber-600/40 bg-background p-5 space-y-4 shadow-sm">
           <p className="text-sm font-semibold flex items-center gap-2">
             <Phone className="h-4 w-4 text-amber-600" />
-            Enter number + amount → refund
+            Send refund to PawaPay
+          </p>
+          <p className="text-xs text-muted-foreground">
+            We send your request to PawaPay. <strong className="text-foreground">They</strong> decide
+            if the deposit is eligible (completed, not already refunded, etc.). Money always returns
+            to the original payer of that deposit.
           </p>
           <div className="grid sm:grid-cols-2 gap-4">
             <Input
-              label="Phone number to refund"
+              label="Phone that paid (optional if you paste deposit ID)"
               placeholder="0752 123 456"
               inputMode="tel"
               autoComplete="tel"
@@ -492,45 +515,67 @@ export default function SuperAdminPaymentsPage() {
             />
             <div className="space-y-1.5">
               <Input
-                label="Amount (UGX)"
-                type="number"
-                min={500}
-                placeholder="e.g. 10000"
-                value={manualRefundAmount}
-                onChange={(e) => setManualRefundAmount(e.target.value)}
+                label="Deposit ID from PawaPay / receipt (best)"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={manualRefundDepositId}
+                onChange={(e) => setManualRefundDepositId(e.target.value.trim())}
               />
-              {lookingUpPhone && (
-                <p className="text-[11px] text-muted-foreground">Checking payments for this number…</p>
-              )}
-              {phoneMatchTotal != null && !lookingUpPhone && (
-                <p className="text-[11px] text-muted-foreground">
-                  {phoneMatchTotal > 0 ? (
-                    <>
-                      Up to{" "}
-                      <strong className="text-foreground">
-                        UGX {phoneMatchTotal.toLocaleString()}
-                      </strong>{" "}
-                      can be refunded to this number
-                      <button
-                        type="button"
-                        className="ml-2 text-amber-700 font-semibold hover:underline"
-                        onClick={() => setManualRefundAmount(String(phoneMatchTotal))}
-                      >
-                        Use max
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-amber-700">
-                      No refundable payments found for this number yet
-                    </span>
-                  )}
-                </p>
-              )}
+              <p className="text-[11px] text-muted-foreground">
+                If app records are missing after a redeploy, paste deposit ID from{" "}
+                <a
+                  href="https://dashboard.pawapay.io/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-amber-700 underline"
+                >
+                  PawaPay Deposits
+                </a>
+                .
+              </p>
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={manualFullRefund}
+                onChange={(e) => setManualFullRefund(e.target.checked)}
+                className="rounded border-border"
+              />
+              Full refund (recommended — let PawaPay refund the whole deposit)
+            </label>
+          </div>
+          {!manualFullRefund && (
+            <Input
+              label="Partial amount (UGX) — only if not full refund"
+              type="number"
+              min={1}
+              placeholder="e.g. 10000"
+              value={manualRefundAmount}
+              onChange={(e) => setManualRefundAmount(e.target.value)}
+            />
+          )}
+          {lookingUpPhone && (
+            <p className="text-[11px] text-muted-foreground">Looking up payments for this number…</p>
+          )}
+          {phoneMatchTotal != null && !lookingUpPhone && (
+            <p className="text-[11px] text-muted-foreground">
+              {phoneMatchTotal > 0 ? (
+                <>
+                  App records show ~UGX {phoneMatchTotal.toLocaleString()} for this number (PawaPay
+                  still has the final say).
+                </>
+              ) : (
+                <span className="text-amber-700">
+                  No local match for this phone — paste the deposit ID from PawaPay dashboard and
+                  submit anyway.
+                </span>
+              )}
+            </p>
+          )}
           <Input
             label="Note (optional)"
-            placeholder="e.g. Customer requested refund"
+            placeholder="e.g. Self-test refund"
             value={manualRefundNote}
             onChange={(e) => setManualRefundNote(e.target.value)}
           />
@@ -542,14 +587,10 @@ export default function SuperAdminPaymentsPage() {
             onClick={() => void submitManualRefund()}
           >
             <Undo2 className="h-4 w-4" />
-            Refund UGX{" "}
-            {(Math.round(Number(manualRefundAmount)) || 0).toLocaleString() || "—"} to{" "}
-            {manualRefundPhone.trim() || "number"}
+            {manualFullRefund
+              ? "Submit full refund to PawaPay"
+              : `Refund UGX ${(Math.round(Number(manualRefundAmount)) || 0).toLocaleString()}`}
           </Button>
-          <p className="text-[11px] text-muted-foreground">
-            The number must have paid on this site (Airtel/MTN via PawaPay). Refund always goes to
-            that same number — not to a different wallet.
-          </p>
         </div>
 
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">
