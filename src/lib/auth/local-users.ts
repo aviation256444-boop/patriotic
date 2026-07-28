@@ -11,6 +11,8 @@ import type { User, UserRole } from "@/types";
 
 export type StoredUser = User & {
   passwordHash: string;
+  /** ISO timestamp of last successful login */
+  lastLoginAt?: string;
 };
 
 type UsersDb = { users: StoredUser[] };
@@ -77,7 +79,10 @@ function saveDb(db: UsersDb) {
 function publicUser(u: StoredUser): User {
   const { passwordHash: _pw, ...rest } = u;
   void _pw;
-  return rest;
+  return {
+    ...rest,
+    lastLoginAt: u.lastLoginAt,
+  };
 }
 
 function seedDemoUsers(): UsersDb {
@@ -153,9 +158,198 @@ export function listUsersPublic(): User[] {
   return ensureDb().users.map(publicUser);
 }
 
+/** Public user list with lastLoginAt (still no password hashes). */
+export function listUsersWithMeta(): Array<User & { lastLoginAt?: string }> {
+  return ensureDb().users.map((u) => {
+    const pub = publicUser(u);
+    return { ...pub, lastLoginAt: u.lastLoginAt };
+  });
+}
+
 export function findUserByEmail(email: string): StoredUser | null {
   const db = ensureDb();
   return db.users.find((u) => u.email === email.toLowerCase().trim()) || null;
+}
+
+export function findUserById(id: string): StoredUser | null {
+  const db = ensureDb();
+  return db.users.find((u) => u.id === id) || null;
+}
+
+export function countSuperAdmins(): number {
+  return ensureDb().users.filter((u) => u.role === "super_admin").length;
+}
+
+const ALLOWED_ROLES: UserRole[] = [
+  "member",
+  "volunteer",
+  "district_admin",
+  "regional_admin",
+  "admin",
+  "super_admin",
+];
+
+export function isValidRole(role: string): role is UserRole {
+  return ALLOWED_ROLES.includes(role as UserRole);
+}
+
+/**
+ * Super admin: update another user's profile credentials and/or role.
+ * Passwords set via setUserPassword.
+ */
+export function updateUserByAdmin(
+  userId: string,
+  patch: {
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    role?: UserRole;
+    membershipStatus?: User["membershipStatus"];
+    membershipNumber?: string;
+    district?: string;
+    occupation?: string;
+  }
+): User {
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) throw new Error("User not found");
+
+  const current = db.users[idx];
+
+  if (patch.email) {
+    const email = patch.email.toLowerCase().trim();
+    if (!email.includes("@")) throw new Error("Enter a valid email address");
+    const clash = db.users.some((u) => u.id !== userId && u.email === email);
+    if (clash) throw new Error("Another account already uses this email");
+    current.email = email;
+  }
+
+  if (patch.fullName !== undefined) {
+    const fullName = patch.fullName.trim();
+    if (fullName.length < 2) throw new Error("Full name is too short");
+    current.fullName = fullName;
+  }
+
+  if (patch.phone !== undefined) {
+    current.phone = patch.phone.trim() || undefined;
+  }
+
+  if (patch.role !== undefined) {
+    if (!isValidRole(patch.role)) throw new Error("Invalid role");
+    if (current.role === "super_admin" && patch.role !== "super_admin") {
+      if (countSuperAdmins() <= 1) {
+        throw new Error("Cannot demote the last super admin");
+      }
+    }
+    current.role = patch.role;
+  }
+
+  if (patch.membershipStatus !== undefined) {
+    current.membershipStatus = patch.membershipStatus;
+  }
+  if (patch.membershipNumber !== undefined) {
+    current.membershipNumber = patch.membershipNumber.trim() || undefined;
+  }
+  if (patch.district !== undefined) {
+    current.district = patch.district.trim() || undefined;
+  }
+  if (patch.occupation !== undefined) {
+    current.occupation = patch.occupation.trim() || undefined;
+  }
+
+  current.updatedAt = new Date().toISOString();
+  db.users[idx] = current;
+  saveDb(db);
+  return publicUser(current);
+}
+
+/** Super admin or self: set a new password for a user. */
+export function setUserPassword(userId: string, newPassword: string): User {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters");
+  }
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) throw new Error("User not found");
+
+  db.users[idx].passwordHash = hashPassword(newPassword);
+  db.users[idx].updatedAt = new Date().toISOString();
+  saveDb(db);
+  return publicUser(db.users[idx]);
+}
+
+/**
+ * Logged-in user updates own profile. Optionally change password with currentPassword.
+ */
+export function updateOwnCredentials(
+  userId: string,
+  patch: {
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    currentPassword?: string;
+    newPassword?: string;
+  }
+): User {
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) throw new Error("User not found");
+  const current = db.users[idx];
+
+  if (patch.newPassword) {
+    if (!patch.currentPassword) {
+      throw new Error("Enter your current password to set a new one");
+    }
+    if (!verifyPassword(patch.currentPassword, current.passwordHash)) {
+      throw new Error("Current password is incorrect");
+    }
+    if (patch.newPassword.length < 6) {
+      throw new Error("New password must be at least 6 characters");
+    }
+    current.passwordHash = hashPassword(patch.newPassword);
+  }
+
+  if (patch.email) {
+    const email = patch.email.toLowerCase().trim();
+    if (!email.includes("@")) throw new Error("Enter a valid email address");
+    const clash = db.users.some((u) => u.id !== userId && u.email === email);
+    if (clash) throw new Error("Another account already uses this email");
+    current.email = email;
+  }
+
+  if (patch.fullName !== undefined) {
+    const fullName = patch.fullName.trim();
+    if (fullName.length < 2) throw new Error("Full name is too short");
+    current.fullName = fullName;
+  }
+
+  if (patch.phone !== undefined) {
+    current.phone = patch.phone.trim() || undefined;
+  }
+
+  current.updatedAt = new Date().toISOString();
+  db.users[idx] = current;
+  saveDb(db);
+  return publicUser(current);
+}
+
+export function recordLogin(userId: string): void {
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) return;
+  db.users[idx].lastLoginAt = new Date().toISOString();
+  db.users[idx].updatedAt = new Date().toISOString();
+  saveDb(db);
+}
+
+/** Require that actor is a super_admin in the local DB. */
+export function requireSuperAdmin(actorEmailOrId: string): StoredUser {
+  const actor =
+    findUserById(actorEmailOrId) || findUserByEmail(actorEmailOrId);
+  if (!actor || actor.role !== "super_admin") {
+    throw new Error("Super admin access required");
+  }
+  return actor;
 }
 
 export function registerLocalUser(input: {
@@ -207,7 +401,9 @@ export function loginLocalUser(email: string, password: string): User {
   if (!user || !verifyPassword(password, user.passwordHash)) {
     throw new Error("Invalid email or password");
   }
-  return publicUser(user);
+  recordLogin(user.id);
+  const fresh = findUserById(user.id);
+  return publicUser(fresh || user);
 }
 
 /** Stable session token (not JWT) for optional cookie use */

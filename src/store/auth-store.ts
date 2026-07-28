@@ -17,6 +17,8 @@ interface AuthState {
   loginWithApple: () => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => void;
+  /** Re-load user from data/users.json so credentials stay current */
+  refreshUser: () => Promise<User | null>;
   isAdmin: () => boolean;
   isSuperAdmin: () => boolean;
 }
@@ -96,6 +98,28 @@ export const useAuthStore = create<AuthState>()(
             localStorage.setItem("pyu_user", JSON.stringify(updated));
           }
         }
+      },
+      refreshUser: async () => {
+        const current = get().user;
+        if (!current?.id && !current?.email) return null;
+        try {
+          const q = current.id
+            ? `userId=${encodeURIComponent(current.id)}`
+            : `email=${encodeURIComponent(current.email)}`;
+          const res = await fetch(`/api/auth/me?${q}`, { cache: "no-store" });
+          if (!res.ok) return current;
+          const data = await res.json();
+          if (data.user) {
+            set({ user: data.user });
+            if (typeof window !== "undefined") {
+              localStorage.setItem("pyu_user", JSON.stringify(data.user));
+            }
+            return data.user as User;
+          }
+        } catch {
+          /* keep session */
+        }
+        return current;
       },
       isAdmin: () => {
         const role = get().user?.role;

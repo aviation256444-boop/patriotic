@@ -30,7 +30,9 @@ const quickLinks = [
   { href: "/super-admin/events", label: "Events", desc: "Schedule & registration", icon: Calendar },
   { href: "/super-admin/news", label: "News", desc: "Articles & stories", icon: Newspaper },
   { href: "/super-admin/gallery", label: "Gallery", desc: "Photos & videos", icon: Image },
-  { href: "/super-admin/members", label: "Members", desc: "User management", icon: Users },
+  { href: "/super-admin/users", label: "User accounts", desc: "Passwords, roles, super admin", icon: Users },
+  { href: "/super-admin/account", label: "My credentials", desc: "Change your login details", icon: Users },
+  { href: "/super-admin/members", label: "CMS Members", desc: "Website members collection", icon: Users },
   { href: "/super-admin/backup", label: "Backup", desc: "Export / import / reset", icon: Database },
 ];
 

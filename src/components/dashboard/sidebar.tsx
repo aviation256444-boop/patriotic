@@ -32,6 +32,7 @@ import {
   Menu,
   X,
   Home,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -73,6 +74,9 @@ export const adminNav: NavItem[] = [
 
 export const superAdminNav: NavItem[] = [
   { href: "/super-admin", label: "CMS Overview", icon: Shield },
+  { href: "/super-admin/users", label: "User accounts", icon: Users },
+  { href: "/super-admin/account", label: "My credentials", icon: KeyRound },
+  { href: "/super-admin/admins", label: "Manage Admins", icon: Lock },
   { href: "/super-admin/content", label: "Website Content", icon: FileText },
   { href: "/super-admin/stats", label: "Statistics", icon: BarChart3 },
   { href: "/super-admin/programs", label: "Programs", icon: Trophy },
@@ -90,13 +94,12 @@ export const superAdminNav: NavItem[] = [
   { href: "/super-admin/coreValues", label: "Core Values", icon: Lock },
   { href: "/super-admin/history", label: "History", icon: Activity },
   { href: "/super-admin/strategicGoals", label: "Strategic Goals", icon: Trophy },
-  { href: "/super-admin/members", label: "Members", icon: Users },
+  { href: "/super-admin/members", label: "CMS Members", icon: Users },
   { href: "/super-admin/donations", label: "Donations", icon: Heart },
   { href: "/super-admin/backup", label: "Backup & Restore", icon: Database },
   { href: "/super-admin/settings", label: "System Settings", icon: Settings },
   { href: "/super-admin/theme", label: "Theme", icon: Palette },
   { href: "/super-admin/security", label: "Security", icon: Shield },
-  { href: "/super-admin/admins", label: "Manage Admins", icon: Users },
   { href: "/super-admin/api", label: "API Management", icon: Activity },
 ];
 

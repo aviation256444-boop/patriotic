@@ -40,6 +40,8 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   twoFactorEnabled?: boolean;
+  /** Last successful login (local auth / users.json) */
+  lastLoginAt?: string;
 }
 
 export interface Program {

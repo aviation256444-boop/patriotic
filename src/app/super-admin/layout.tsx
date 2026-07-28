@@ -7,8 +7,13 @@ import { useAuthStore } from "@/store/auth-store";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, isSuperAdmin } = useAuthStore();
+  const { user, isSuperAdmin, refreshUser } = useAuthStore();
   const router = useRouter();
+
+  useEffect(() => {
+    // Keep session credentials synced with data/users.json
+    void refreshUser();
+  }, [refreshUser]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
