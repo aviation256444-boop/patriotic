@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCollection } from "@/lib/cms/store";
 import { findUserByEmail, listUsersWithMeta } from "@/lib/auth/local-users";
+import type { CmsMember } from "@/lib/cms/types";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     let q = (searchParams.get("q") || searchParams.get("code") || "").trim();
     if (!q) {
-      return NextResponse.json({ error: "Enter a membership number, email, or QR code" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Enter a membership number, email, or QR code" },
+        { status: 400 }
+      );
     }
 
     // QR format from digital card: PYU-MEMBER:NUMBER
@@ -21,7 +25,7 @@ export async function GET(request: Request) {
       q = q.slice("PYU-MEMBER:".length).trim();
     }
 
-    const members = (await getCollection("members")) as Array<Record<string, unknown>>;
+    const members = (await getCollection("members")) as CmsMember[];
     const loginUsers = listUsersWithMeta();
 
     const qLower = q.toLowerCase();
@@ -52,9 +56,7 @@ export async function GET(request: Request) {
     }
 
     const status = String(
-      (member?.membershipStatus as string) ||
-        login?.membershipStatus ||
-        "pending"
+      member?.membershipStatus || login?.membershipStatus || "pending"
     ).toLowerCase();
     const valid = status === "active" || status === "approved";
 
@@ -67,18 +69,16 @@ export async function GET(request: Request) {
         ? "Membership is valid and active"
         : `Membership found but status is "${status}" — not verified for full access`,
       member: {
-        id: (member?.id as string) || login?.id,
-        fullName:
-          (member?.fullName as string) || login?.fullName || "Member",
-        email: (member?.email as string) || login?.email,
-        phone: (member?.phone as string) || login?.phone,
-        membershipNumber:
-          (member?.membershipNumber as string) || login?.membershipNumber,
+        id: member?.id || login?.id,
+        fullName: member?.fullName || login?.fullName || "Member",
+        email: member?.email || login?.email,
+        phone: member?.phone || login?.phone,
+        membershipNumber: member?.membershipNumber || login?.membershipNumber,
         membershipStatus: status,
-        district: (member?.district as string) || login?.district,
-        role: (member?.role as string) || login?.role || "member",
-        photoURL: (member?.photoURL as string) || login?.photoURL,
-        createdAt: (member?.createdAt as string) || login?.createdAt,
+        district: member?.district || login?.district,
+        role: member?.role || login?.role || "member",
+        photoURL: member?.photoURL || login?.photoURL,
+        createdAt: member?.createdAt || login?.createdAt,
         lastLoginAt: login?.lastLoginAt,
       },
     });

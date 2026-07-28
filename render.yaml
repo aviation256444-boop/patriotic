@@ -1,6 +1,7 @@
-# Fresh service name to avoid stuck "patriotic" free instance
-# Public URL after deploy: https://patriotic-app.onrender.com
-# Set PAWAPAY_API_TOKEN in Dashboard → Environment
+# Service: patriotic-app
+# Public URL: https://patriotic-app.onrender.com
+# Repo: https://github.com/aviation256444-boop/patriotic (branch main)
+# Set PAWAPAY_API_TOKEN (+ optional Cloudinary) in Dashboard → Environment
 services:
   - type: web
     name: patriotic-app
@@ -8,8 +9,9 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    # Must install devDeps too (TypeScript needed to compile Next app on Render)
-    buildCommand: npm install --legacy-peer-deps --include=dev --no-audit --no-fund && npm run build
+    autoDeploy: true
+    # Install devDeps so TypeScript / types are available at build time
+    buildCommand: npm ci --legacy-peer-deps --include=dev --no-audit --no-fund || npm install --legacy-peer-deps --include=dev --no-audit --no-fund; npm run build
     startCommand: npx next start -H 0.0.0.0 -p $PORT
     healthCheckPath: /
     envVars:

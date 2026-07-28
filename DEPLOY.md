@@ -1,41 +1,58 @@
 # Deploy to Render (permanent public URL)
 
-GitHub: https://github.com/aviation256444-boop/patriotic
+GitHub (deploy source): https://github.com/aviation256444-boop/patriotic
 
-## One-click deploy
+Live app: **https://patriotic-app.onrender.com**
 
-1. Open (logged into Render with **aviation256444-boop** GitHub):
+## Blueprint / one-click
+
+1. Open (logged into Render linked to **aviation256444-boop** GitHub):
 
    **https://render.com/deploy?repo=https://github.com/aviation256444-boop/patriotic**
 
-2. Click **Apply** / create the Blueprint.
-3. After the service exists, open **Environment** and set:
+2. Apply / create the Blueprint (`render.yaml` → service **patriotic-app**).
+3. After the service exists, open **Environment** and set secrets:
 
 | Key | Value |
 |-----|--------|
 | `PAWAPAY_API_TOKEN` | Your **live** PawaPay token |
-| `NEXT_PUBLIC_APP_URL` | `https://patriotic.onrender.com` *(or the exact URL Render shows)* |
+| `NEXT_PUBLIC_APP_URL` | `https://patriotic-app.onrender.com` |
+| `CLOUDINARY_CLOUD_NAME` *(optional)* | Permanent logo/image hosting |
+| `CLOUDINARY_UPLOAD_PRESET` *(optional)* | Unsigned upload preset |
 
 Other PawaPay / app vars are already in `render.yaml`.
 
-4. **Manual Deploy** → Clear build cache & deploy.
-5. Wait until status is **Live** (5–15 min on free tier).
+4. **Manual Deploy** → Clear build cache & deploy (if auto-deploy fails).
+5. Wait until status is **Live** (5–15 min on free tier). First cold start can take 30–60s.
 
 ## Public links
 
 ```text
-https://patriotic.onrender.com
-https://patriotic.onrender.com/donate
+https://patriotic-app.onrender.com
+https://patriotic-app.onrender.com/donate
+https://patriotic-app.onrender.com/events
+https://patriotic-app.onrender.com/admin/payments
 ```
 
 ## PawaPay live callbacks
 
 ```text
-https://patriotic.onrender.com/api/payments/pawapay/callback
+https://patriotic-app.onrender.com/api/payments/pawapay/callback
 ```
 
 Paste that URL for Deposits (and other callback fields) in the **live** PawaPay dashboard.
 
-## Free tier
+## Event tickets & membership
 
-App may sleep when idle; first visit can take 30–60 seconds to wake.
+After a successful deploy you should have:
+
+- `GET/POST /api/events/tickets` — paid seats only after confirmed payment
+- `GET /api/events/tickets?stats=1` — admin payments dashboard
+- `GET /api/membership/verify?q=...` — membership card verify
+- `/tickets/[id]` — e-receipt page
+
+## Free tier notes
+
+- App may sleep when idle; first visit can take 30–60 seconds to wake.
+- Uploaded files under `/public/uploads` are **ephemeral** unless you use Cloudinary or data-URL logos in site settings.
+- `data/tickets.json` and CMS DB are local disk on the free instance (reset on major redeploy/disk wipe).
