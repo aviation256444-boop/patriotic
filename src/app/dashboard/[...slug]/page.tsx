@@ -7,7 +7,6 @@ import { useAuthStore } from "@/store/auth-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { badges } from "@/lib/data/stats";
-import { events } from "@/lib/data/content";
 import { formatDate } from "@/lib/utils";
 
 const titles: Record<string, string> = {
@@ -48,7 +47,7 @@ export default function DashboardSubPage({
   if (!user) return null;
 
   // Skip pages that have dedicated routes
-  if (["profile", "membership", "settings"].includes(page)) return null;
+  if (["profile", "membership", "settings", "events"].includes(page)) return null;
 
   return (
     <div className="space-y-6">
@@ -113,26 +112,6 @@ export default function DashboardSubPage({
               <p className="text-xs text-muted-foreground mt-1">{formatDate(c.date)}</p>
               <Button size="sm" variant="outline" className="mt-3">Download PDF</Button>
             </div>
-          ))}
-        </div>
-      )}
-
-      {page === "events" && (
-        <div className="space-y-3">
-          {events.filter((e) => e.status === "upcoming").slice(0, 3).map((e) => (
-            <Link
-              key={e.id}
-              href={`/events/${e.slug}`}
-              className="flex gap-4 rounded-2xl border border-border/50 bg-card p-4 hover:border-emerald-500/20 transition-colors"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={e.image} alt="" className="h-16 w-16 rounded-xl object-cover" />
-              <div>
-                <p className="font-semibold text-sm">{e.title}</p>
-                <p className="text-xs text-muted-foreground">{formatDate(e.startDate)} · {e.location}</p>
-                <Badge variant="info" className="mt-1">Registered</Badge>
-              </div>
-            </Link>
           ))}
         </div>
       )}

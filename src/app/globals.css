@@ -337,6 +337,16 @@ h1, h2, h3, h4, h5, h6 {
   top: 1rem;
 }
 
+/* ─── Membership digital card print ─────────────────────────────────────── */
+@media print {
+  .membership-card-page .membership-id {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+  }
+}
+
 /* ─── Official receipts: on-screen dark polish + single-page PDF ─────────── */
 .receipt-sheet {
   break-inside: avoid;
