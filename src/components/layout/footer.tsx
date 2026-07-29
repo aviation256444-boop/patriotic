@@ -23,8 +23,9 @@ const footerLinks = {
   Organization: [
     { href: "/about", label: "About Us" },
     { href: "/about#leadership", label: "Leadership" },
-    { href: "/about#structure", label: "Structure" },
-    { href: "/about#history", label: "History" },
+    { href: "/governance", label: "Governance" },
+    { href: "/impact", label: "Impact" },
+    { href: "/map", label: "Uganda Map" },
     { href: "/contact", label: "Contact" },
   ],
   Programs: [
@@ -39,14 +40,14 @@ const footerLinks = {
     { href: "/volunteer", label: "Volunteer" },
     { href: "/events", label: "Events" },
     { href: "/donate", label: "Donate" },
-    { href: "/opportunities", label: "Opportunities" },
+    { href: "/careers", label: "Careers" },
   ],
   Resources: [
     { href: "/news", label: "News & Blog" },
+    { href: "/faq", label: "FAQ" },
     { href: "/resources", label: "Resource Center" },
+    { href: "/press", label: "Press kit" },
     { href: "/gallery", label: "Gallery" },
-    { href: "/forum", label: "Community Forum" },
-    { href: "/search", label: "Search" },
   ],
 };
 

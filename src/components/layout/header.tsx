@@ -32,9 +32,9 @@ const navLinks = [
     children: [
       { href: "/about#vision", label: "Vision & Mission" },
       { href: "/about#values", label: "Core Values" },
-      { href: "/about#history", label: "History" },
       { href: "/about#leadership", label: "Leadership" },
-      { href: "/about#structure", label: "Structure" },
+      { href: "/governance", label: "Governance" },
+      { href: "/impact", label: "Impact" },
     ],
   },
   {
@@ -50,6 +50,7 @@ const navLinks = [
   },
   { href: "/projects", label: "Projects" },
   { href: "/events", label: "Events" },
+  { href: "/map", label: "Map" },
   { href: "/news", label: "News" },
   {
     href: "#",
@@ -60,7 +61,9 @@ const navLinks = [
       { href: "/opportunities", label: "Opportunities" },
       { href: "/resources", label: "Resources" },
       { href: "/membership", label: "Membership" },
-      { href: "/forum", label: "Forum" },
+      { href: "/faq", label: "FAQ" },
+      { href: "/careers", label: "Careers" },
+      { href: "/press", label: "Press" },
       { href: "/donate", label: "Donate" },
       { href: "/contact", label: "Contact" },
     ],

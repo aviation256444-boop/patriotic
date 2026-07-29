@@ -8,7 +8,9 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LocationMap } from "@/components/maps/location-map";
 import { useCmsCollection, findBySlug } from "@/hooks/use-cms";
+import { resolveDistrictCoords, googleMapsUrl } from "@/lib/maps/coords";
 import { formatDate } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -123,6 +125,45 @@ export default function ProjectDetailPage({
                   ))}
                 </div>
               </div>
+              {(() => {
+                const p = project as Project & { lat?: number; lng?: number };
+                const coords =
+                  resolveDistrictCoords(p.district || p.location, p.lat, p.lng) ||
+                  resolveDistrictCoords(p.location);
+                if (!coords) return null;
+                return (
+                  <div className="space-y-2">
+                    <h3 className="font-bold">Location map</h3>
+                    <LocationMap
+                      height={260}
+                      center={[coords.lat, coords.lng]}
+                      zoom={11}
+                      scrollWheelZoom={false}
+                      markers={[
+                        {
+                          id: project.id,
+                          lat: coords.lat,
+                          lng: coords.lng,
+                          title: project.title,
+                          description: project.location || project.district,
+                        },
+                      ]}
+                    />
+                    <a
+                      href={googleMapsUrl(
+                        coords.lat,
+                        coords.lng,
+                        project.location || project.title
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-emerald-600 hover:underline"
+                    >
+                      Open in Google Maps →
+                    </a>
+                  </div>
+                );
+              })()}
             </aside>
           </div>
         </div>

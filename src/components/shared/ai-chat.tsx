@@ -49,14 +49,39 @@ const FAQS: { keywords: string[]; answer: string }[] = [
       "Check Opportunities at /opportunities for jobs, scholarships, internships, competitions, grants, and training. The Girls in STEM Scholarship 2025 is currently open!",
   },
   {
-    keywords: ["district", "chapter", "map"],
+    keywords: ["district", "chapter", "map", "where", "location", "uganda map"],
     answer:
-      "We have presence in all 146 districts of Uganda. Use the interactive map on the homepage to explore membership, projects, and events by district.",
+      "Open the live OpenStreetMap at /map (also on the homepage). Click district pins for members, projects, and events. HQ is on the Contact page map in Kampala.",
   },
   {
     keywords: ["hello", "hi", "hey", "help"],
     answer:
       "Hello! 👋 I'm the PYU AI Assistant. I can help with membership, programs, events, volunteering, donations, and more. What would you like to know?",
+  },
+  {
+    keywords: ["faq", "question", "how do"],
+    answer:
+      "Browse common answers on our FAQ page at /faq — membership, payments, tickets, volunteering, and privacy. Or ask me a specific question here!",
+  },
+  {
+    keywords: ["privacy", "terms", "legal", "policy"],
+    answer:
+      "Read our Privacy Policy at /privacy and Terms of Use at /terms. Accessibility notes are at /accessibility.",
+  },
+  {
+    keywords: ["impact", "results", "governance"],
+    answer:
+      "See national impact at /impact and how we are organised at /governance. Project stories are also under /projects and /news.",
+  },
+  {
+    keywords: ["career", "job", "hire", "internship staff"],
+    answer:
+      "Staff openings (when available) are listed at /careers. Also check /opportunities for internships, scholarships, and program roles.",
+  },
+  {
+    keywords: ["press", "media", "journalist"],
+    answer:
+      "Media kit and contact details are at /press. For official stories visit /news.",
   },
 ];
 
@@ -118,7 +143,7 @@ export function AIChat() {
       <motion.button
         onClick={() => setOpen(true)}
         className={cn(
-          "fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-shadow",
+          "no-print fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-shadow",
           open && "hidden"
         )}
         whileHover={{ scale: 1.05 }}
@@ -138,7 +163,7 @@ export function AIChat() {
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-6 right-6 z-50 flex h-[520px] w-[min(100vw-2rem,380px)] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-2xl"
+            className="no-print fixed bottom-6 right-6 z-50 flex h-[520px] w-[min(100vw-2rem,380px)] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-2xl"
             role="dialog"
             aria-label="AI Chat Assistant"
           >

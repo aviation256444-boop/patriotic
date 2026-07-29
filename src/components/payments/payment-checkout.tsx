@@ -520,7 +520,7 @@ export function PaymentCheckout({
       } else if (isMobileMoney && !useWidget) {
         // Demo / no live keys: in-app PIN
         setPhase("pin");
-        toast.message(data.message || "Enter PIN to complete demo payment");
+        toast.message(data.message || "Enter PIN to complete test payment");
       } else {
         setPhase("details");
         toast.success("Payment session created", {
@@ -555,7 +555,7 @@ export function PaymentCheckout({
       if (gateway === "card") {
         const num = card.number.replace(/\s/g, "");
         if (num.length < 12) {
-          toast.error("Enter a valid card number. Demo: 4242 4242 4242 4242");
+          toast.error("Enter a valid card number");
           return;
         }
       }
@@ -1175,7 +1175,7 @@ export function PaymentCheckout({
                 Approve payment
               </div>
               <Badge className="bg-white/15 text-white border-0 text-[10px]">
-                Demo / sandbox PIN
+                Test environment
               </Badge>
             </div>
             <p className="text-3xl font-black mt-3">
@@ -1185,14 +1185,14 @@ export function PaymentCheckout({
               Linked to <span className="font-semibold text-white">{formatUgPhoneDisplay(phone)}</span>
             </p>
             <p className="text-xs mt-3 rounded-lg bg-black/20 px-3 py-2 text-white/90">
-              Live MTN charging needs production Collections keys. This screen only appears when
-              running in demo mode.
+              Live mobile money is not configured on this environment. Use the PIN pad below only for
+              non-production testing.
             </p>
           </div>
 
           <div className="rounded-2xl border-2 border-[#FFCC00]/40 bg-card p-5 space-y-4 shadow-md">
             <div className="text-center space-y-1">
-              <p className="font-bold text-base">Enter demo PIN</p>
+              <p className="font-bold text-base">Enter test PIN</p>
               <p className="text-xs text-muted-foreground">
                 Type any <strong>4 digits</strong> (e.g. 1234)
               </p>
@@ -1314,15 +1314,14 @@ export function PaymentCheckout({
                     <CreditCard className="h-4 w-4" /> Card details
                     {!squareCfg?.chargeReady && (
                       <Badge variant="secondary" className="text-[10px]">
-                        Demo / setup Square
+                        Card not configured
                       </Badge>
                     )}
                   </div>
                   {squareCfg && !squareCfg.webPaymentsReady && (
                     <p className="text-xs text-amber-700 dark:text-amber-300 rounded-lg bg-amber-500/10 p-2">
-                      Add <code className="bg-muted px-1 rounded">NEXT_PUBLIC_SQUARE_LOCATION_ID</code>{" "}
-                      and <code className="bg-muted px-1 rounded">SQUARE_ACCESS_TOKEN</code> from your
-                      Square Console Credentials page to enable live card charging.
+                      Card payments are not fully configured. Please use Airtel Money or MTN MoMo,
+                      or contact support.
                     </p>
                   )}
                   <Input
@@ -1348,7 +1347,7 @@ export function PaymentCheckout({
                     loading={loading}
                     onClick={() => void completePayment("completed")}
                   >
-                    Pay {currency} {amount.toLocaleString()} (demo)
+                    Pay {currency} {amount.toLocaleString()}
                   </Button>
                 </div>
               )}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Calendar, MapPin, Users, Clock } from "lucide-react";
 import { PageHero } from "@/components/shared/page-hero";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCmsCollection } from "@/hooks/use-cms";
@@ -85,6 +86,18 @@ export default function EventsPage() {
                 <Skeleton key={i} className="h-72 rounded-2xl" />
               ))}
             </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={Calendar}
+              title={tab === "upcoming" ? "No upcoming events yet" : "No past events listed"}
+              description={
+                tab === "upcoming"
+                  ? "Check back soon, join the WhatsApp group for announcements, or explore programs while you wait."
+                  : "Past events will appear here after they are marked complete in the CMS."
+              }
+              actionHref="/programs"
+              actionLabel="Browse programs"
+            />
           ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map((event, i) => (

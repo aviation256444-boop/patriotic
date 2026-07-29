@@ -1,13 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Users, FolderKanban, Crown, HandHelping, Calendar, X } from "lucide-react";
+import {
+  MapPin,
+  Users,
+  FolderKanban,
+  Crown,
+  HandHelping,
+  Calendar,
+  X,
+  ExternalLink,
+} from "lucide-react";
+import Link from "next/link";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { LocationMap } from "@/components/maps/location-map";
 import { useCmsCollection, useSiteSettings } from "@/hooks/use-cms";
 import type { DistrictStats } from "@/types";
 import { formatNumber, cn } from "@/lib/utils";
+import {
+  resolveDistrictCoords,
+  UGANDA_CENTER,
+  googleMapsUrl,
+} from "@/lib/maps/coords";
 
 export function UgandaMapSection() {
   const { data, isLoading } = useCmsCollection("districts");
@@ -16,13 +33,38 @@ export function UgandaMapSection() {
   const [selected, setSelected] = useState<DistrictStats | null>(null);
   const [search, setSearch] = useState("");
 
-  const filtered = districts.filter(
+  const resolved = useMemo(() => {
+    return districts
+      .map((d) => {
+        const coords = resolveDistrictCoords(d.name, d.lat, d.lng);
+        if (!coords) return null;
+        return { ...d, lat: coords.lat, lng: coords.lng };
+      })
+      .filter(Boolean) as (DistrictStats & { lat: number; lng: number })[];
+  }, [districts]);
+
+  const maxMembers = Math.max(1, ...resolved.map((d) => Number(d.members) || 0));
+
+  const circleMarkers = useMemo(
+    () =>
+      resolved.map((d) => ({
+        id: d.name,
+        lat: d.lat,
+        lng: d.lng,
+        title: d.name,
+        description: `${d.region} Region\n${formatNumber(d.members)} members · ${d.projects} projects`,
+        weight: Math.min(1, (Number(d.members) || 0) / maxMembers),
+      })),
+    [resolved, maxMembers]
+  );
+
+  const filtered = resolved.filter(
     (d) =>
       d.name.toLowerCase().includes(search.toLowerCase()) ||
       d.region.toLowerCase().includes(search.toLowerCase())
   );
 
-  const regions = [...new Set(districts.map((d) => d.region))];
+  const regions = [...new Set(resolved.map((d) => d.region))];
 
   return (
     <section className="py-20 sm:py-28 bg-muted/30">
@@ -32,7 +74,7 @@ export function UgandaMapSection() {
           title="Interactive Uganda Map"
           description={
             site?.mapDescription ||
-            "Click any district to explore membership, projects, leaders, volunteers, and events."
+            "Real map of Uganda — click any district pin to explore membership, projects, leaders, volunteers, and events."
           }
         />
 
@@ -63,6 +105,7 @@ export function UgandaMapSection() {
                         {regionDistricts.map((d) => (
                           <button
                             key={d.name}
+                            type="button"
                             onClick={() => setSelected(d)}
                             className={cn(
                               "rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200",
@@ -85,55 +128,31 @@ export function UgandaMapSection() {
                   );
                 })}
               </div>
+
+              <Link href="/map" className="block">
+                <Button variant="outline" className="w-full" size="sm">
+                  Open full map
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
             </div>
 
             <div className="lg:col-span-3">
               <div className="relative rounded-2xl border border-border/50 bg-card overflow-hidden min-h-[500px]">
-                <div className="absolute inset-0 gradient-hero opacity-50" />
-                <div
-                  className="absolute inset-0 opacity-[0.04]"
-                  style={{
-                    backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
-                    backgroundSize: "24px 24px",
+                <LocationMap
+                  center={UGANDA_CENTER}
+                  zoom={7}
+                  height={500}
+                  scrollWheelZoom
+                  fitMarkers
+                  selectedId={selected?.name || null}
+                  onMarkerClick={(id) => {
+                    const d = resolved.find((x) => x.name === id);
+                    if (d) setSelected(d);
                   }}
+                  circleMarkers={circleMarkers}
+                  className="border-0 rounded-none shadow-none min-h-[500px]"
                 />
-
-                <div className="relative p-6 h-full min-h-[500px] flex flex-col">
-                  <div className="flex-1 relative">
-                    {districts.map((d, i) => {
-                      const x = ((d.lng - 29.5) / 5.5) * 100;
-                      const y = ((4.5 - d.lat) / 6) * 100;
-                      const size = Math.max(8, Math.min(24, d.members / 1000));
-                      return (
-                        <motion.button
-                          key={d.name}
-                          initial={{ scale: 0 }}
-                          whileInView={{ scale: 1 }}
-                          viewport={{ once: true }}
-                          transition={{ delay: i * 0.03 }}
-                          onClick={() => setSelected(d)}
-                          className={cn(
-                            "absolute rounded-full transition-all duration-300 hover:z-10",
-                            selected?.name === d.name
-                              ? "bg-emerald-500 ring-4 ring-emerald-500/30 z-10"
-                              : "bg-emerald-500/60 hover:bg-emerald-500 hover:ring-2 hover:ring-emerald-500/30"
-                          )}
-                          style={{
-                            left: `${Math.max(5, Math.min(90, x))}%`,
-                            top: `${Math.max(5, Math.min(90, y))}%`,
-                            width: size,
-                            height: size,
-                          }}
-                          title={`${d.name}: ${formatNumber(d.members)} members`}
-                          aria-label={`View ${d.name} statistics`}
-                        />
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center mt-4">
-                    Click a district pin or select from the list · {districts.length} districts shown
-                  </p>
-                </div>
 
                 <AnimatePresence>
                   {selected && (
@@ -141,7 +160,7 @@ export function UgandaMapSection() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 20 }}
-                      className="absolute inset-x-4 bottom-4 rounded-2xl border border-border/50 glass-strong p-5 shadow-xl z-20"
+                      className="absolute inset-x-4 bottom-4 rounded-2xl border border-border/50 glass-strong p-5 shadow-xl z-[500]"
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div>
@@ -149,9 +168,13 @@ export function UgandaMapSection() {
                             <MapPin className="h-5 w-5 text-emerald-500" />
                             {selected.name}
                           </h3>
-                          <p className="text-sm text-muted-foreground">{selected.region} Region</p>
+                          <p className="text-sm text-muted-foreground">
+                            {selected.region} Region · {selected.lat.toFixed(3)},{" "}
+                            {selected.lng.toFixed(3)}
+                          </p>
                         </div>
                         <button
+                          type="button"
                           onClick={() => setSelected(null)}
                           className="rounded-lg p-1.5 hover:bg-muted transition-colors"
                           aria-label="Close"
@@ -167,7 +190,10 @@ export function UgandaMapSection() {
                           { icon: HandHelping, label: "Volunteers", value: selected.volunteers },
                           { icon: Calendar, label: "Events", value: selected.events },
                         ].map((stat) => (
-                          <div key={stat.label} className="text-center rounded-xl bg-muted/50 p-3">
+                          <div
+                            key={stat.label}
+                            className="text-center rounded-xl bg-muted/50 p-3"
+                          >
                             <stat.icon className="h-4 w-4 mx-auto mb-1 text-emerald-500" />
                             <p className="text-lg font-bold">{formatNumber(stat.value)}</p>
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -176,10 +202,25 @@ export function UgandaMapSection() {
                           </div>
                         ))}
                       </div>
+                      <a
+                        href={googleMapsUrl(
+                          selected.lat,
+                          selected.lng,
+                          `${selected.name} District Uganda`
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:underline"
+                      >
+                        Open in Google Maps <ExternalLink className="h-3 w-3" />
+                      </a>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
+              <p className="text-xs text-muted-foreground text-center mt-3">
+                OpenStreetMap · {resolved.length} districts with coordinates · scroll to zoom
+              </p>
             </div>
           </div>
         )}

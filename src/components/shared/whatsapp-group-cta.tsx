@@ -181,7 +181,7 @@ export function WhatsAppFloatingButton() {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      className="fixed bottom-24 right-6 z-40 flex items-center gap-2 rounded-full bg-[#25D366] pl-3 pr-4 py-3 text-white shadow-xl shadow-[#25D366]/40 hover:bg-[#20bd5a] hover:scale-105 transition-all group md:bottom-6 md:right-24"
+      className="no-print fixed bottom-24 right-6 z-40 flex items-center gap-2 rounded-full bg-[#25D366] pl-3 pr-4 py-3 text-white shadow-xl shadow-[#25D366]/40 hover:bg-[#20bd5a] hover:scale-105 transition-all group md:bottom-6 md:right-24"
     >
       <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#25D366]">
         <WhatsAppIcon className="h-6 w-6" />

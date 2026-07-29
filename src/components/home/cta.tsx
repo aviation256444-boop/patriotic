@@ -70,6 +70,11 @@ export function CTA() {
                   Volunteer With Us
                 </Button>
               </Link>
+              <Link href="/impact">
+                <Button size="lg" variant="outline" className="text-white border-white/25 hover:bg-white/10">
+                  See our impact
+                </Button>
+              </Link>
               <Link href="/donate">
                 <Button size="lg" variant="secondary">
                   <Heart className="h-4 w-4" />

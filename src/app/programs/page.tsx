@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { PageHero } from "@/components/shared/page-hero";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCmsCollection } from "@/hooks/use-cms";
 import { mediaUrl } from "@/lib/cms/media-url";
@@ -30,6 +31,13 @@ export default function ProgramsPage() {
                 <Skeleton key={i} className="h-80 rounded-2xl" />
               ))}
             </div>
+          ) : programs.length === 0 ? (
+            <EmptyState
+              title="Programs coming soon"
+              description="Our pathways will be listed here. Meanwhile, join as a member or explore volunteer opportunities."
+              actionHref="/membership"
+              actionLabel="Become a member"
+            />
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {programs.map((program, i) => (

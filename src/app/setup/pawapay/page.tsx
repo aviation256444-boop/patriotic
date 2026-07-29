@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Copy, ExternalLink, AlertTriangle, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, Copy, ExternalLink, AlertTriangle, Loader2, Lock } from "lucide-react";
 import { PageHero } from "@/components/shared/page-hero";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { useAuthStore } from "@/store/auth-store";
 
 type SetupData = {
   ready: boolean;
@@ -64,11 +66,63 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function roleIsSuperAdmin(role: unknown): boolean {
+  const r = String(role || "")
+    .toLowerCase()
+    .trim()
+    .replace(/-/g, "_");
+  return r === "super_admin" || r === "superadmin";
+}
+
+/**
+ * Internal PawaPay setup — not linked publicly.
+ * Production: Super Admin only. Development: open for local wiring.
+ */
 export default function PawaPaySetupPage() {
+  const router = useRouter();
+  const { user, refreshUser, setUser, isSuperAdmin } = useAuthStore();
+  const [gate, setGate] = useState<"checking" | "allowed" | "denied">("checking");
   const [data, setData] = useState<SetupData | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      const isProd = process.env.NODE_ENV === "production";
+      if (!isProd) {
+        if (!cancelled) setGate("allowed");
+        return;
+      }
+      let session = useAuthStore.getState().user;
+      if (!session && typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem("pyu_user");
+          if (raw) {
+            session = JSON.parse(raw);
+            if (session) setUser(session);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      const fresh = await refreshUser();
+      const u = fresh || useAuthStore.getState().user;
+      if (cancelled) return;
+      if (u && (roleIsSuperAdmin(u.role) || useAuthStore.getState().isSuperAdmin())) {
+        setGate("allowed");
+      } else {
+        setGate("denied");
+        router.replace("/");
+      }
+    }
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshUser, router, setUser]);
+
+  useEffect(() => {
+    if (gate !== "allowed") return;
     let cancelled = false;
     void fetch("/api/payments/pawapay/config", { cache: "no-store" })
       .then((r) => r.json())
@@ -81,27 +135,54 @@ export default function PawaPaySetupPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [gate]);
+
+  if (gate === "checking") {
+    return (
+      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+        <p className="text-sm text-muted-foreground">Verifying access…</p>
+      </div>
+    );
+  }
+
+  if (gate === "denied") {
+    return (
+      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3 px-4">
+        <Lock className="h-10 w-10 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground text-center">
+          This setup page is only available to Super Admins.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <>
       <PageHero
-        badge="Setup · PawaPay"
+        badge="Internal · Super Admin"
         title="PawaPay callback & test setup"
-        description="Copy these exact URLs into the PawaPay Sandbox dashboard so deposits work and show on their website."
+        description="Internal tooling — not part of the public site. Copy these URLs into the PawaPay dashboard."
       />
 
       <section className="py-12">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 space-y-6">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100 flex gap-2">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <p>
+              Do not share this URL publicly. Prefer managing payments from Super Admin → Payments
+              and Ops checklist.
+              {user?.email ? ` Signed in as ${user.email}.` : null}
+            </p>
+          </div>
+
           {!data && !error && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
               Loading setup…
             </div>
           )}
-          {error && (
-            <p className="text-red-600 text-sm">{error}</p>
-          )}
+          {error && <p className="text-red-600 text-sm">{error}</p>}
 
           {data && (
             <>
@@ -127,96 +208,84 @@ export default function PawaPaySetupPage() {
                           className="text-emerald-600 underline"
                           href={data.dashboard.sandboxTokens}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                         >
                           API tokens
                         </a>
                       </li>
-                      <li>Generate token → copy it immediately</li>
-                      <li>
-                        Put in <code className="bg-muted px-1 rounded">.env.local</code>:{" "}
-                        <code className="bg-muted px-1 rounded">PAWAPAY_API_TOKEN=…</code>
-                      </li>
-                      <li>Restart <code className="bg-muted px-1 rounded">npm run dev</code></li>
+                      <li>Create a token and set PAWAPAY_API_TOKEN on your host (Render).</li>
+                      <li>Redeploy, then refresh this page.</li>
                     </ol>
                   </div>
                 </div>
               )}
 
               <div className="space-y-3">
-                <h2 className="font-bold text-lg">1. Paste these into PawaPay Callback URLs</h2>
-                <p className="text-sm text-muted-foreground">
-                  Open{" "}
-                  <a
-                    href={data.dashboard.sandboxCallbacks}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-600 underline inline-flex items-center gap-1"
-                  >
-                    Callback URLs <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                  . Use the <strong>same URL</strong> for every field. Do{" "}
-                  <strong>not</strong> tick “I do not wish to receive callbacks” if you want
-                  callbacks.
-                </p>
-                <p className="text-xs rounded-lg bg-muted/50 p-2">
-                  App public URL: <code className="font-mono">{data.appUrl}</code>
-                  {data.appUrl.includes("localhost") && (
-                    <span className="block mt-1 text-amber-700 dark:text-amber-300">
-                      localhost cannot receive callbacks. Start Cloudflare Tunnel so
-                      NEXT_PUBLIC_APP_URL is https://….trycloudflare.com then refresh this page.
-                    </span>
-                  )}
-                </p>
-                <CopyRow label="Checkouts" value={data.callbacks.checkouts} />
-                <CopyRow label="Deposits (required for donations)" value={data.callbacks.deposits} />
-                <CopyRow label="Payouts" value={data.callbacks.payouts} />
-                <CopyRow label="Refunds" value={data.callbacks.refunds} />
-              </div>
-
-              <div className="space-y-2 rounded-2xl border border-border/50 p-5">
-                <h2 className="font-bold text-lg">2. Test payment</h2>
-                <ul className="text-sm space-y-1.5 text-muted-foreground">
-                  <li>
-                    MTN success number:{" "}
-                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground">
-                      {data.testNumbers.mtnSuccess}
-                    </code>
-                  </li>
-                  <li>
-                    Airtel success number:{" "}
-                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground">
-                      {data.testNumbers.airtelSuccess}
-                    </code>
-                  </li>
-                </ul>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <a href="/donate">
-                    <Button type="button">Open donate page →</Button>
-                  </a>
-                  <a
-                    href={data.dashboard.sandboxDeposits}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Button type="button" variant="outline">
-                      PawaPay deposits <ExternalLink className="h-3.5 w-3.5 ml-1" />
-                    </Button>
-                  </a>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 space-y-2">
-                <div className="flex items-center gap-2 font-bold">
+                <h2 className="font-bold text-lg flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                  Checklist
-                </div>
-                <ol className="list-decimal list-inside text-sm space-y-1 text-muted-foreground">
-                  {data.howToTest.map((step) => (
-                    <li key={step}>{step.replace(/^\d+\.\s*/, "")}</li>
-                  ))}
-                </ol>
+                  Callback URLs
+                </h2>
+                <CopyRow label="App URL" value={data.appUrl} />
+                <CopyRow label="Deposits / checkouts callback" value={data.callbacks.deposits} />
+                <CopyRow label="Payouts callback" value={data.callbacks.payouts} />
+                <CopyRow label="Refunds callback" value={data.callbacks.refunds} />
+                <CopyRow label="API base" value={data.baseUrl} />
               </div>
+
+              <div className="space-y-3">
+                <h2 className="font-bold text-lg">Dashboard links</h2>
+                <a
+                  href={data.dashboard.sandboxCallbacks}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-emerald-600 hover:underline"
+                >
+                  Callback URL settings <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <a
+                  href={data.dashboard.sandboxTokens}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-emerald-600 hover:underline"
+                >
+                  API tokens <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <a
+                  href={data.dashboard.sandboxDeposits}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-emerald-600 hover:underline"
+                >
+                  Deposits <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+
+              {data.testNumbers && (
+                <div className="rounded-2xl border border-border/50 bg-card p-4 text-sm space-y-1">
+                  <p className="font-semibold">Sandbox test numbers</p>
+                  <p className="text-muted-foreground">MTN success: {data.testNumbers.mtnSuccess}</p>
+                  <p className="text-muted-foreground">
+                    Airtel success: {data.testNumbers.airtelSuccess}
+                  </p>
+                </div>
+              )}
+
+              {Array.isArray(data.howToTest) && data.howToTest.length > 0 && (
+                <div className="space-y-2">
+                  <h2 className="font-bold">How to test</h2>
+                  <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
+                    {data.howToTest.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {isSuperAdmin() && (
+                <Button variant="outline" onClick={() => router.push("/super-admin/ops")}>
+                  Open ops checklist
+                </Button>
+              )}
             </>
           )}
         </div>

@@ -102,6 +102,7 @@ export const superAdminNav: NavItem[] = [
   { href: "/super-admin/members", label: "CMS Members", icon: Users },
   { href: "/super-admin/donations", label: "Donations", icon: Heart },
   { href: "/super-admin/backup", label: "Backup & Restore", icon: Database },
+  { href: "/super-admin/ops", label: "Ops checklist", icon: FileText },
   { href: "/super-admin/settings", label: "System Settings", icon: Settings },
   { href: "/super-admin/theme", label: "Theme", icon: Palette },
   { href: "/super-admin/security", label: "Security", icon: Shield },

@@ -296,6 +296,28 @@ h1, h2, h3, h4, h5, h6 {
   z-index: 0;
   border-radius: 1rem;
   font-family: inherit;
+  background: #e8f0e8;
+}
+
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 400;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.leaflet-popup-content {
+  margin: 0.75rem 0.9rem;
+  line-height: 1.4;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+  max-width: 70%;
 }
 
 /* Skip link */
@@ -313,4 +335,78 @@ h1, h2, h3, h4, h5, h6 {
 
 .skip-link:focus {
   top: 1rem;
+}
+
+/* ─── Official receipts: on-screen + single-page print ───────────────────── */
+.receipt-sheet {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #0a0a0a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide site chrome & floating UI */
+  header,
+  footer,
+  .skip-link,
+  .no-print,
+  [data-print-hide],
+  #ai-chat-root,
+  nextjs-portal {
+    display: none !important;
+  }
+
+  /* Fixed widgets (header already covered; WA + chat use fixed) */
+  body > div > a.fixed,
+  .fixed.bottom-6,
+  .fixed.bottom-24 {
+    display: none !important;
+  }
+
+  main {
+    min-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Collapse page heroes on receipt routes when marked */
+  .print-hide-hero {
+    display: none !important;
+  }
+
+  .receipt-page {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .receipt-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    border: 1px solid #d4d4d8 !important;
+    overflow: visible !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Prefer one page — tighten spacing slightly when printing */
+  .receipt-sheet * {
+    box-shadow: none !important;
+  }
 }

@@ -81,3 +81,33 @@ NEXT_PUBLIC_APP_URL=https://patriotic-app.onrender.com
 
 6. Redeploy. Without this Client ID, the Google button cannot show real Gmail accounts (Google requires it).
 
+## Professional launch checklist
+
+Public pages added for trust & SEO:
+
+- `/privacy` · `/terms` · `/accessibility`
+- `/impact` · `/governance` · `/faq` · `/careers` · `/press`
+- `/sitemap.xml` · `/robots.txt`
+- Super Admin → **Ops checklist** (`/super-admin/ops`)
+
+Optional analytics (no scripts load unless set):
+
+```env
+NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXX
+# or
+NEXT_PUBLIC_PLAUSIBLE_DOMAIN=your-domain.com
+```
+
+### Custom domain
+
+1. Add domain on Render → point DNS.
+2. Set `NEXT_PUBLIC_APP_URL=https://your-domain`.
+3. Update Google OAuth origins/redirects.
+4. Update PawaPay callback URLs to `https://your-domain/api/payments/pawapay/callback`.
+
+### Production safety
+
+- Keep `PAYMENT_DEMO_MODE` / `DEMO_MODE` **unset or false** in production.
+- `/setup/pawapay` is Super Admin–only in production (not public nav).
+- Prefer real CMS content (photos, accurate stats) over placeholders.
+

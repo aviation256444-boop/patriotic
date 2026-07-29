@@ -8,6 +8,7 @@ import { AIChat } from "@/components/shared/ai-chat";
 import { WhatsAppFloatingButton } from "@/components/shared/whatsapp-group-cta";
 import { PWARegister } from "@/components/layout/pwa-register";
 import { MomoScript } from "@/components/payments/momo-script";
+import { Analytics } from "@/components/shared/analytics";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -101,6 +102,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AIChat />
           <PWARegister />
           <MomoScript />
+          <Analytics />
         </Providers>
       </body>
     </html>

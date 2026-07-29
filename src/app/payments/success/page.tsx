@@ -3,29 +3,15 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { CheckCircle2, Home, Receipt } from "lucide-react";
-import { PageHero } from "@/components/shared/page-hero";
-import { Badge } from "@/components/ui/badge";
+import {
+  OfficialReceipt,
+  gatewayLabel,
+} from "@/components/payments/official-receipt";
 import {
   PAYMENT_RECEIPT_KEY,
   type PaymentReceipt,
 } from "@/components/payments/payment-checkout";
-
-function gatewayLabel(g: string) {
-  switch (g) {
-    case "mtn_momo":
-      return "MTN MoMo";
-    case "airtel_money":
-      return "Airtel Money";
-    case "card":
-      return "Card";
-    case "bank":
-      return "Bank transfer";
-    default:
-      return g.replace(/_/g, " ");
-  }
-}
+import { Skeleton } from "@/components/ui/skeleton";
 
 function SuccessContent() {
   const search = useSearchParams();
@@ -61,7 +47,7 @@ function SuccessContent() {
 
   if (!receipt || (!receipt.externalId && !receipt.paymentId)) {
     return (
-      <div className="rounded-3xl border border-border/50 bg-card p-10 text-center space-y-4">
+      <div className="rounded-3xl border border-border/50 bg-card p-10 text-center space-y-4 max-w-lg mx-auto">
         <p className="text-muted-foreground">
           No completed payment found. Complete checkout first.
         </p>
@@ -75,85 +61,98 @@ function SuccessContent() {
     );
   }
 
-  const title =
-    receipt.purpose === "event"
-      ? "Event payment successful"
-      : "Payment successful";
+  const isEvent = receipt.purpose === "event";
+  const isMembership = receipt.purpose === "membership";
+
+  if (isEvent) {
+    return (
+      <OfficialReceipt
+        kind="event"
+        title={
+          receipt.campaign
+            ? `Event payment · ${receipt.campaign.replace(/-/g, " ")}`
+            : "Event payment successful"
+        }
+        subtitle="Your payment for this event was confirmed. If a ticket was issued, open your e-ticket for the QR entry pass (same one-page official design)."
+        amount={Number(receipt.amount)}
+        currency={receipt.currency || "UGX"}
+        method={gatewayLabel(receipt.gateway)}
+        reference={receipt.externalId || receipt.paymentId}
+        paidAt={receipt.paidAt}
+        statusLabel="Event payment confirmed"
+        highlightRows={[
+          {
+            label: "Event",
+            value: receipt.campaign
+              ? receipt.campaign.replace(/-/g, " ")
+              : "PYU event",
+          },
+          { label: "Type", value: "Event booking" },
+          { label: "Status", value: "Paid" },
+        ]}
+        rows={[
+          ...(receipt.phone
+            ? [{ label: "Phone", value: receipt.phone }]
+            : []),
+          { label: "Purpose", value: "event" },
+        ]}
+        secondaryHref={
+          receipt.campaign ? `/events/${receipt.campaign}` : "/events"
+        }
+        secondaryLabel="Back to event"
+      />
+    );
+  }
+
+  const title = isMembership
+    ? "Membership payment successful"
+    : "Payment successful";
+
+  const rows = [
+    ...(receipt.purpose
+      ? [{ label: "Purpose", value: String(receipt.purpose) }]
+      : []),
+    ...(receipt.campaign
+      ? [{ label: "Campaign", value: receipt.campaign }]
+      : []),
+    ...(receipt.phone ? [{ label: "Phone", value: receipt.phone }] : []),
+  ];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-3xl border border-emerald-500/30 bg-gradient-to-b from-emerald-500/10 to-card p-8 sm:p-12 text-center space-y-6 shadow-xl"
-    >
-      <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xl">
-        <CheckCircle2 className="h-11 w-11" />
-      </div>
-      <Badge variant="success">Payment confirmed</Badge>
-      <h1 className="text-3xl font-black">{title}</h1>
-      <p className="text-muted-foreground">
-        You were redirected here only after the payment was completed.
-      </p>
-
-      <div className="mx-auto max-w-md rounded-2xl border border-border/60 bg-background/80 p-6 text-left space-y-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-          <Receipt className="h-4 w-4" />
-          Receipt
-        </div>
-        <p className="text-2xl font-black text-emerald-600">
-          {receipt.currency} {Number(receipt.amount).toLocaleString()}
-        </p>
-        <p className="text-sm">
-          Method: <strong>{gatewayLabel(receipt.gateway)}</strong>
-        </p>
-        {receipt.campaign && (
-          <p className="text-sm capitalize">For: {receipt.campaign}</p>
-        )}
-        <p className="text-[11px] font-mono text-muted-foreground break-all pt-2 border-t">
-          Ref: {receipt.externalId || receipt.paymentId}
-        </p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-3 justify-center">
-        {receipt.purpose === "event" && receipt.campaign ? (
-          <Link
-            href={`/events/${receipt.campaign}`}
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-emerald-600 px-8 text-sm font-semibold text-white"
-          >
-            Back to event
-          </Link>
-        ) : null}
-        <Link
-          href="/"
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/30 px-8 text-sm font-semibold hover:bg-emerald-500/10"
-        >
-          <Home className="h-4 w-4" />
-          Home
-        </Link>
-      </div>
-    </motion.div>
+    <OfficialReceipt
+      kind={isMembership ? "membership" : "payment"}
+      title={title}
+      subtitle="This payment was confirmed by the payment provider before this receipt was issued."
+      amount={Number(receipt.amount)}
+      currency={receipt.currency || "UGX"}
+      method={gatewayLabel(receipt.gateway)}
+      reference={receipt.externalId || receipt.paymentId}
+      paidAt={receipt.paidAt}
+      statusLabel="Payment confirmed"
+      rows={rows}
+    />
   );
 }
 
 export default function PaymentSuccessPage() {
   return (
-    <>
-      <PageHero
-        badge="Payment complete"
-        title="Success"
-        description="Confirmed payment receipt"
-      />
-      <section className="py-12 sm:py-16">
-        <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
-          <Suspense
-            fallback={
-              <div className="p-12 text-center text-muted-foreground">Loading…</div>
-            }
-          >
-            <SuccessContent />
-          </Suspense>
+    <section className="py-10 sm:py-14 print:py-0">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 print:max-w-none print:px-0">
+        <div className="print-hide-hero no-print mb-8 text-center space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+            Payment complete
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+            Your official receipt
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            One-page design · Events, donations &amp; membership · Print or PDF
+          </p>
         </div>
-      </section>
-    </>
+        <Suspense fallback={<Skeleton className="h-[480px] w-full rounded-3xl" />}>
+          <SuccessContent />
+        </Suspense>
+      </div>
+    </section>
   );
 }

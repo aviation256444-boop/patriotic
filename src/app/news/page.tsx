@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Calendar, Eye, Search, Heart, MessageCircle } from "lucide-react";
 import { PageHero } from "@/components/shared/page-hero";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCmsCollection } from "@/hooks/use-cms";
@@ -74,6 +75,18 @@ export default function NewsPage() {
                 <Skeleton key={i} className="h-80 rounded-2xl" />
               ))}
             </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="No articles found"
+              description={
+                query || category !== "All"
+                  ? "Try a different search term or category."
+                  : "News and impact stories will appear here once published."
+              }
+              actionHref="/impact"
+              actionLabel="See our impact"
+            />
           ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map((article, i) => (

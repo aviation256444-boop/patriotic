@@ -2,12 +2,13 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle2, Download, Home, Ticket } from "lucide-react";
-import { PageHero } from "@/components/shared/page-hero";
-import { Badge } from "@/components/ui/badge";
+import {
+  OfficialReceipt,
+  gatewayLabel,
+} from "@/components/payments/official-receipt";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatDate } from "@/lib/utils";
 
 type TicketRow = {
   id: string;
@@ -15,15 +16,40 @@ type TicketRow = {
   receiptId: string;
   eventTitle: string;
   eventSlug: string;
+  eventLocation?: string;
+  eventDistrict?: string;
+  eventStartDate?: string;
+  eventEndDate?: string;
+  eventType?: string;
   userName: string;
   userEmail: string;
+  userPhone?: string;
   seats: number;
   amountPaid: number;
   currency: string;
   paymentMethod: string;
+  paymentExternalId?: string;
   paidAt: string;
   status: string;
 };
+
+function formatEventWhen(start?: string, end?: string) {
+  if (!start) return "Date TBA";
+  try {
+    const s = formatDate(start, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    if (!end) return s;
+    return `${s}`;
+  } catch {
+    return start;
+  }
+}
 
 export default function TicketReceiptPage({
   params,
@@ -56,101 +82,93 @@ export default function TicketReceiptPage({
   }, [id]);
 
   return (
-    <>
-      <PageHero
-        badge="E-receipt · Ticket"
-        title="Your event ticket"
-        description="Present this receipt and QR code at the venue. Issued only after payment was confirmed."
-      />
-      <section className="py-12">
-        <div className="mx-auto max-w-lg px-4">
-          {loading && <Skeleton className="h-80 w-full rounded-2xl" />}
-          {error && !loading && (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center space-y-3">
-              <p className="font-semibold text-red-600">{error}</p>
-              <Link href="/events">
-                <Button variant="outline">Browse events</Button>
-              </Link>
-            </div>
-          )}
-          {ticket && (
-            <div className="rounded-3xl border border-emerald-500/30 bg-card p-6 sm:p-8 space-y-5 shadow-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-emerald-600 font-semibold">
-                  <CheckCircle2 className="h-5 w-5" />
-                  Payment confirmed
-                </div>
-                <Badge variant="success">{ticket.status}</Badge>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">Event</p>
-                <h1 className="text-xl font-bold mt-0.5">{ticket.eventTitle}</h1>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl bg-muted/40 p-3">
-                  <p className="text-xs text-muted-foreground">Seats</p>
-                  <p className="font-bold text-lg">{ticket.seats}</p>
-                </div>
-                <div className="rounded-xl bg-muted/40 p-3">
-                  <p className="text-xs text-muted-foreground">Amount paid</p>
-                  <p className="font-bold text-lg text-emerald-600">
-                    {ticket.currency} {ticket.amountPaid.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border/50 p-4 space-y-1 text-sm">
-                <p>
-                  <span className="text-muted-foreground">Name:</span>{" "}
-                  <strong>{ticket.userName}</strong>
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Email:</span> {ticket.userEmail}
-                </p>
-                <p className="font-mono text-xs break-all">
-                  <span className="text-muted-foreground">Receipt ID:</span> {ticket.receiptId}
-                </p>
-                <p className="font-mono text-xs break-all">
-                  <span className="text-muted-foreground">Ticket code:</span> {ticket.ticketCode}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Paid via {ticket.paymentMethod.replace(/_/g, " ")} ·{" "}
-                  {new Date(ticket.paidAt).toLocaleString()}
-                </p>
-              </div>
-
-              <div className="flex justify-center bg-white rounded-2xl p-4 border border-border/40">
-                <QRCodeSVG
-                  value={`PYU-TICKET:${ticket.ticketCode}`}
-                  size={180}
-                  level="H"
-                />
-              </div>
-              <p className="text-center text-xs text-muted-foreground">
-                <Ticket className="inline h-3.5 w-3.5 mr-1" />
-                Show this QR at check-in
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  className="flex-1"
-                  variant="outline"
-                  onClick={() => window.print()}
-                >
-                  <Download className="h-4 w-4" /> Print / save
-                </Button>
-                <Link href="/" className="flex-1">
-                  <Button className="w-full" variant="ghost">
-                    <Home className="h-4 w-4" /> Home
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          )}
+    <section className="py-10 sm:py-14 print:py-0">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 print:max-w-none print:px-0">
+        <div className="print-hide-hero no-print mb-8 text-center space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+            Event ticket · Official e-receipt
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+            Your event ticket
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            One page · Show QR at the door · Print or save PDF
+          </p>
         </div>
-      </section>
-    </>
+
+        {loading && <Skeleton className="h-[560px] w-full rounded-3xl" />}
+
+        {error && !loading && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center space-y-3 max-w-lg mx-auto">
+            <p className="font-semibold text-red-600">{error}</p>
+            <Link href="/events">
+              <Button variant="outline">Browse events</Button>
+            </Link>
+          </div>
+        )}
+
+        {ticket && (
+          <OfficialReceipt
+            kind="event"
+            title={ticket.eventTitle}
+            subtitle={`Event entry pass for ${ticket.userName}. Present this QR at check-in. Valid for the seats listed below.`}
+            amount={Number(ticket.amountPaid)}
+            currency={ticket.currency || "UGX"}
+            method={
+              ticket.paymentMethod === "free"
+                ? "Free registration"
+                : gatewayLabel(ticket.paymentMethod)
+            }
+            reference={ticket.receiptId}
+            paidAt={ticket.paidAt}
+            statusLabel={
+              ticket.status === "confirmed" || ticket.status === "valid"
+                ? "Ticket confirmed"
+                : ticket.status || "Confirmed"
+            }
+            highlightRows={[
+              {
+                label: "Event date",
+                value: formatEventWhen(ticket.eventStartDate, ticket.eventEndDate),
+              },
+              {
+                label: "Venue",
+                value:
+                  ticket.eventLocation ||
+                  ticket.eventDistrict ||
+                  (ticket.eventType === "online" ? "Online event" : "See event page"),
+              },
+              {
+                label: "Seats",
+                value: `${ticket.seats} seat${ticket.seats === 1 ? "" : "s"}`,
+              },
+            ]}
+            rows={[
+              { label: "Guest name", value: ticket.userName },
+              { label: "Email", value: ticket.userEmail },
+              ...(ticket.userPhone
+                ? [{ label: "Phone", value: ticket.userPhone }]
+                : []),
+              { label: "Ticket code", value: ticket.ticketCode },
+              ...(ticket.eventType
+                ? [{ label: "Format", value: ticket.eventType }]
+                : []),
+              ...(ticket.eventDistrict
+                ? [{ label: "District", value: ticket.eventDistrict }]
+                : []),
+              ...(ticket.paymentExternalId
+                ? [{ label: "Payment ref", value: ticket.paymentExternalId }]
+                : []),
+            ]}
+            qrValue={`PYU-TICKET:${ticket.ticketCode}`}
+            qrCaption="Scan at venue check-in · Official PYU event pass"
+            secondaryHref={
+              ticket.eventSlug ? `/events/${ticket.eventSlug}` : "/events"
+            }
+            secondaryLabel="Event details"
+          />
+        )}
+      </div>
+    </section>
   );
 }

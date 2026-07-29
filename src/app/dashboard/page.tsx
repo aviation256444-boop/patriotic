@@ -29,6 +29,43 @@ export default function MemberDashboard() {
     { label: "Notifications", value: 5, icon: Bell, color: "text-red-500", href: "/dashboard/notifications" },
   ];
 
+  const onboardingSteps: {
+    id: string;
+    label: string;
+    done: boolean;
+    href: string;
+    optional?: boolean;
+  }[] = [
+    {
+      id: "profile",
+      label: "Complete your profile",
+      done: Boolean(user.fullName && user.email),
+      href: "/dashboard/profile",
+    },
+    {
+      id: "membership",
+      label: "Apply for membership",
+      done: Boolean(user.membershipNumber) || user.membershipStatus === "active",
+      href: "/membership",
+    },
+    {
+      id: "district",
+      label: "Set your district",
+      done: Boolean(user.district),
+      href: "/dashboard/profile",
+    },
+    {
+      id: "event",
+      label: "Browse upcoming events",
+      done: false,
+      href: "/events",
+      optional: true,
+    },
+  ];
+  const requiredSteps = onboardingSteps.filter((s) => !s.optional);
+  const onboardingDone = requiredSteps.filter((s) => s.done).length;
+  const showOnboarding = onboardingDone < requiredSteps.length;
+
   return (
     <div className="space-y-8">
       <div>
@@ -39,6 +76,49 @@ export default function MemberDashboard() {
           Here&apos;s your membership overview and activity summary.
         </p>
       </div>
+
+      {showOnboarding && (
+        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+            <div>
+              <h2 className="font-bold text-lg">Get started</h2>
+              <p className="text-sm text-muted-foreground">
+                Finish these steps to unlock your full PYU experience.
+              </p>
+            </div>
+            <Badge variant="outline">
+              {onboardingDone}/{onboardingSteps.filter((s) => !s.optional).length} required
+            </Badge>
+          </div>
+          <ul className="space-y-2">
+            {onboardingSteps.map((step) => (
+              <li key={step.id}>
+                <Link
+                  href={step.href}
+                  className="flex items-center gap-3 rounded-xl border border-border/50 bg-card px-4 py-3 text-sm hover:border-emerald-500/30 transition-colors"
+                >
+                  <CheckCircle2
+                    className={
+                      step.done
+                        ? "h-5 w-5 text-emerald-600 shrink-0"
+                        : "h-5 w-5 text-muted-foreground/40 shrink-0"
+                    }
+                  />
+                  <span className={step.done ? "line-through text-muted-foreground" : "font-medium"}>
+                    {step.label}
+                    {step.optional ? (
+                      <span className="ml-2 text-[10px] uppercase text-muted-foreground">
+                        optional
+                      </span>
+                    ) : null}
+                  </span>
+                  <ArrowRight className="h-4 w-4 ml-auto text-muted-foreground" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

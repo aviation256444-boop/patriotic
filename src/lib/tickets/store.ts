@@ -21,6 +21,12 @@ export type EventTicket = {
   eventId: string;
   eventSlug: string;
   eventTitle: string;
+  /** Snapshot for one-page receipt even if CMS event changes */
+  eventLocation?: string;
+  eventDistrict?: string;
+  eventStartDate?: string;
+  eventEndDate?: string;
+  eventType?: string;
   userId?: string;
   userName: string;
   userEmail: string;
@@ -91,6 +97,11 @@ export function createConfirmedTicket(input: {
   eventId: string;
   eventSlug: string;
   eventTitle: string;
+  eventLocation?: string;
+  eventDistrict?: string;
+  eventStartDate?: string;
+  eventEndDate?: string;
+  eventType?: string;
   userId?: string;
   userName: string;
   userEmail: string;
@@ -112,6 +123,11 @@ export function createConfirmedTicket(input: {
     eventId: input.eventId,
     eventSlug: input.eventSlug,
     eventTitle: input.eventTitle,
+    eventLocation: input.eventLocation,
+    eventDistrict: input.eventDistrict,
+    eventStartDate: input.eventStartDate,
+    eventEndDate: input.eventEndDate,
+    eventType: input.eventType,
     userId: input.userId,
     userName: input.userName,
     userEmail: input.userEmail.toLowerCase(),

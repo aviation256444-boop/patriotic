@@ -18,10 +18,12 @@ import { toast } from "sonner";
 
 import { useSiteSettings } from "@/hooks/use-cms";
 import { WhatsAppGroupCTA } from "@/components/shared/whatsapp-group-cta";
+import { LocationMap } from "@/components/maps/location-map";
 import {
   DEFAULT_WHATSAPP_GROUP_LABEL,
   getWhatsAppGroupUrl,
 } from "@/lib/whatsapp";
+import { PYU_HQ, googleMapsUrl } from "@/lib/maps/coords";
 
 export default function ContactPage() {
   const { data: site } = useSiteSettings();
@@ -139,21 +141,37 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              {/* Map */}
-              <div className="rounded-2xl border border-border/50 overflow-hidden h-56 bg-muted/50 flex items-center justify-center">
-                <div className="text-center text-muted-foreground p-4">
-                  <MapPin className="h-8 w-8 mx-auto mb-2 text-emerald-500" />
-                  <p className="font-medium text-sm">Kampala Headquarters</p>
-                  <p className="text-xs mt-1">Google Maps embeds with API key in production</p>
-                  <a
-                    href="https://maps.google.com/?q=Kampala+Uganda"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block mt-2 text-xs text-emerald-600 hover:underline"
-                  >
-                    Open in Google Maps →
-                  </a>
-                </div>
+              {/* Real HQ map */}
+              <div className="space-y-2">
+                <LocationMap
+                  height={240}
+                  center={[PYU_HQ.lat, PYU_HQ.lng]}
+                  zoom={15}
+                  scrollWheelZoom={false}
+                  markers={[
+                    {
+                      id: "hq",
+                      lat: PYU_HQ.lat,
+                      lng: PYU_HQ.lng,
+                      title: "PYU Headquarters",
+                      description:
+                        site?.address ||
+                        "Plot 1, Parliamentary Avenue, Kampala, Uganda",
+                    },
+                  ]}
+                />
+                <a
+                  href={googleMapsUrl(
+                    PYU_HQ.lat,
+                    PYU_HQ.lng,
+                    site?.address || PYU_HQ.query
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex text-xs font-semibold text-emerald-600 hover:underline"
+                >
+                  Open HQ in Google Maps →
+                </a>
               </div>
             </div>
 
