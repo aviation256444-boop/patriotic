@@ -24,7 +24,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_OPTIONS
-        value: --max-old-space-size=460
+        # Free-tier builds OOM around 460MB during Next typecheck if enabled.
+        # Keep headroom for webpack; typecheck skipped in next.config.
+        value: --max-old-space-size=480
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
       - key: NEXT_PUBLIC_DEMO_MODE

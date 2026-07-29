@@ -3,12 +3,14 @@ const nextConfig = {
   reactStrictMode: true,
   // Dev tunnels only (local). Production uses permanent host URL.
   allowedDevOrigins: ["*.trycloudflare.com"],
-  // Don't fail free-tier deploys on lint noise
+  // Don't fail free-tier deploys on lint / typecheck memory
+  // Render free instances OOM (~460MB) during `tsc` in `next build`
+  // even when compile succeeds. Typecheck locally / CI instead.
   eslint: {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,
   },
   // pg is a Node native-ish package — keep external for server
   serverExternalPackages: ["pg"],
