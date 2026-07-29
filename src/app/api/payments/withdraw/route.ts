@@ -10,15 +10,13 @@ import {
 import {
   initiatePayout,
   getPayoutStatus,
+  waitForPayoutResult,
   getWalletBalances,
+  correspondentForGateway,
 } from "@/lib/pawapay/payouts";
-import { shouldUsePawaPay, getPawaPayEnv } from "@/lib/pawapay/config";
+import { shouldUsePawaPay, getPawaPayEnv, getPawaPayCurrency } from "@/lib/pawapay/config";
 import { normalizePawaPayMsisdn } from "@/lib/pawapay/deposits";
-import {
-  getActiveConf,
-  gatewaySupportsPayout,
-  payoutNotConfiguredMessage,
-} from "@/lib/pawapay/active-conf";
+import { getActiveConf } from "@/lib/pawapay/active-conf";
 import { logActivity } from "@/lib/activity/log";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +98,7 @@ export async function GET(request: Request) {
         capabilities: {
           merchantName: activeConf.merchantName,
           merchantId: activeConf.merchantId,
+          /** From active-conf — informational. Withdraw still POSTs /payouts. */
           payoutsEnabled: activeConf.payoutsEnabled,
           airtelPayout: activeConf.airtelPayout,
           mtnPayout: activeConf.mtnPayout,
@@ -110,9 +109,22 @@ export async function GET(request: Request) {
             currency: c.currency,
             operations: c.operations,
           })),
+          api: {
+            method: "POST",
+            path: "/payouts",
+            required: [
+              "payoutId (UUIDv4)",
+              "amount",
+              "currency",
+              "correspondent",
+              "recipient.MSISDN",
+            ],
+            asyncStatuses: ["ACCEPTED", "ENQUEUED", "REJECTED"],
+            poll: "GET /payouts/{payoutId}",
+          },
           howToEnablePayouts: activeConf.payoutsEnabled
             ? null
-            : "Your PawaPay merchant only has DEPOSIT (collect money) and REFUND — not PAYOUT (send to your phone). Email support@pawapay.io or your account manager: enable PAYOUT for AIRTEL_OAPI_UGA and MTN_MOMO_UGA, country UGA, currency UGX.",
+            : "active-conf may not list PAYOUT yet. Withdraw still calls POST /payouts — PawaPay accepts or rejects. If rejected, ask support to enable PAYOUT for AIRTEL_OAPI_UGA and MTN_MOMO_UGA (UGA/UGX).",
         },
         withdrawals: refreshed,
       },
@@ -126,8 +138,11 @@ export async function GET(request: Request) {
 }
 
 /**
- * POST — withdraw available balance to super admin MTN / Airtel wallet
+ * POST — withdraw via PawaPay POST /payouts
  * Body: { actorId, actorEmail, amount, phone, gateway: mtn_momo|airtel_money, note? }
+ *
+ * Sends: payoutId, amount, currency, correspondent, recipient MSISDN.
+ * Async: ACCEPTED / ENQUEUED / REJECTED → poll GET /payouts/{payoutId}.
  */
 export async function POST(request: Request) {
   try {
@@ -145,6 +160,8 @@ export async function POST(request: Request) {
     const phone = String(body.phone || "").replace(/\s/g, "");
     const gateway = String(body.gateway || "") as "mtn_momo" | "airtel_money";
     const note = body.note ? String(body.note).slice(0, 120) : undefined;
+    const skipBalance =
+      body.skipBalanceCheck === true || body.skipBalanceCheck === "true";
 
     if (!amount || amount < 500) {
       return NextResponse.json(
@@ -166,11 +183,13 @@ export async function POST(request: Request) {
     }
 
     const balance = await getAvailableBalance();
-    if (amount > balance.available) {
+    if (!skipBalance && amount > balance.available) {
       return NextResponse.json(
         {
-          error: `Insufficient available balance. Available: UGX ${balance.available.toLocaleString()}`,
+          error: `App ledger available is UGX ${balance.available.toLocaleString()}. ` +
+            `Lower the amount, or set skipBalanceCheck if money is already in the PawaPay wallet.`,
           available: balance.available,
+          code: "APP_BALANCE_LOW",
         },
         { status: 400 }
       );
@@ -180,40 +199,25 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Live withdrawals need PAWAPAY_API_TOKEN on the server. Funds sit in the PawaPay merchant wallet until payout succeeds.",
+            "Live withdrawals need PAWAPAY_API_TOKEN on the server.",
           code: "PAWAPAY_NOT_CONFIGURED",
         },
         { status: 503 }
       );
     }
 
-    const conf = await getActiveConf(true);
-    if (conf.ok && !gatewaySupportsPayout(conf, gateway)) {
-      return NextResponse.json(
-        {
-          error: payoutNotConfiguredMessage(conf, gateway),
-          code: "NO_PAYOUT_FLOW",
-          capabilities: {
-            merchantName: conf.merchantName,
-            airtelPayout: conf.airtelPayout,
-            mtnPayout: conf.mtnPayout,
-            operations: conf.correspondents.map((c) => ({
-              correspondent: c.correspondent,
-              operations: c.operations,
-            })),
-          },
-        },
-        { status: 503 }
-      );
-    }
-
+    const currency = getPawaPayCurrency();
+    const correspondent = correspondentForGateway(gateway);
     const payoutId = randomUUID();
+
+    // Always POST /payouts — PawaPay returns ACCEPTED | ENQUEUED | REJECTED
     const payout = await initiatePayout({
       payoutId,
       amount,
-      currency: "UGX",
+      currency,
       phone,
       gateway,
+      forceAttempt: true,
       statementDescription: "PYU Admin Withdraw",
       metadata: [
         { fieldName: "type", fieldValue: "admin_withdraw" },
@@ -222,69 +226,80 @@ export async function POST(request: Request) {
     });
 
     if (!payout.ok) {
-      // Record failed attempt for audit
       createWithdrawal({
-        payoutId,
+        payoutId: payout.payoutId || payoutId,
         amount,
-        currency: "UGX",
+        currency,
         gateway,
         phone,
         msisdn: payout.msisdn || normalizePawaPayMsisdn(phone),
         status: "failed",
-        providerStatus: payout.status,
+        providerStatus: payout.status || "REJECTED",
         failureReason: payout.error,
         actorId: actor.id,
         actorEmail: actor.email,
         actorName: actor.fullName,
         note,
         live: true,
+        method: "payout",
       });
       return NextResponse.json(
         {
-          error: payout.error || "Payout failed",
+          error: payout.error || "Payout rejected by PawaPay",
           rejectionCode: payout.rejectionCode,
           code: "PAYOUT_FAILED",
+          request: {
+            payoutId,
+            amount: payout.amount,
+            currency,
+            correspondent,
+            recipient: payout.msisdn,
+          },
+          pawaPay: payout.raw,
         },
         { status: 502 }
       );
     }
 
-    const initialStatus =
-      payout.status === "ACCEPTED" || payout.status === "ENQUEUED"
-        ? "processing"
-        : payout.status === "DUPLICATE_IGNORED"
-          ? "processing"
-          : "processing";
-
     const row = createWithdrawal({
       payoutId: payout.payoutId || payoutId,
       amount,
-      currency: "UGX",
+      currency,
       gateway,
       phone,
       msisdn: payout.msisdn || normalizePawaPayMsisdn(phone),
-      status: initialStatus,
-      providerStatus: payout.status,
+      status: "processing",
+      providerStatus: payout.status, // ACCEPTED | ENQUEUED | DUPLICATE_IGNORED
       actorId: actor.id,
       actorEmail: actor.email,
       actorName: actor.fullName,
       note,
       live: true,
+      method: "payout",
     });
 
-    // Quick status poll (often still pending)
+    // Poll final status (async API)
     try {
-      const st = await getPayoutStatus(row.payoutId);
+      const st = await waitForPayoutResult(row.payoutId, {
+        attempts: 6,
+        delayMs: 1500,
+      });
       if (st.status === "SUCCESSFUL") {
         updateWithdrawal(row.id, {
           status: "completed",
-          providerStatus: "COMPLETED",
+          providerStatus: st.rawStatus || "COMPLETED",
         });
       } else if (st.status === "FAILED") {
         updateWithdrawal(row.id, {
           status: "failed",
-          providerStatus: "FAILED",
+          providerStatus: st.rawStatus || "FAILED",
           failureReason: st.reason || st.error,
+        });
+      } else {
+        // Still ACCEPTED/ENQUEUED — callback or later poll will finish
+        updateWithdrawal(row.id, {
+          status: "processing",
+          providerStatus: st.rawStatus || payout.status,
         });
       }
     } catch {
@@ -296,20 +311,40 @@ export async function POST(request: Request) {
 
     logActivity({
       kind: "payment",
-      action: `Super admin withdrew UGX ${amount.toLocaleString()} to ${gateway} ${phone}`,
+      action: `Payout UGX ${amount.toLocaleString()} → ${gateway} ${phone} (${payout.status})`,
       actor: actor.email,
       target: final.payoutId,
-      meta: { amount, gateway, phone, status: final.status },
+      meta: {
+        amount,
+        gateway,
+        phone,
+        status: final.status,
+        pawaPayStatus: payout.status,
+        correspondent,
+        payoutId: final.payoutId,
+      },
     });
 
+    const network = gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo";
     return NextResponse.json({
       success: true,
       withdrawal: final,
       balance: balanceAfter,
+      pawaPay: {
+        payoutId: final.payoutId,
+        initiationStatus: payout.status,
+        correspondent,
+        currency,
+        amount: payout.amount,
+        msisdn: payout.msisdn,
+      },
       message:
         final.status === "completed"
-          ? `UGX ${amount.toLocaleString()} sent to your ${gateway === "airtel_money" ? "Airtel" : "MTN"} wallet.`
-          : `Payout submitted. Money is being sent to ${phone}. Status updates automatically.`,
+          ? `UGX ${amount.toLocaleString()} paid out to ${network} ${phone}.`
+          : final.status === "failed"
+            ? `Payout failed: ${final.failureReason || "see PawaPay"}`
+            : `Payout ${payout.status} — UGX ${amount.toLocaleString()} to ${phone}. ` +
+              `Final status via callback or poll GET /payouts/${final.payoutId}.`,
     });
   } catch (error) {
     console.error(error);

@@ -724,7 +724,7 @@ export default function SuperAdminPaymentsPage() {
           <Button
             size="lg"
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold shrink-0"
-            disabled={available < 500 || capabilities?.payoutsEnabled === false}
+            disabled={available < 500 && !showWithdraw}
             onClick={() => {
               setShowWithdraw(true);
               fillMax();
@@ -735,128 +735,70 @@ export default function SuperAdminPaymentsPage() {
           </Button>
         </div>
 
-        {/* PawaPay product capabilities — root cause of "no active flow" */}
-        {capabilities && capabilities.payoutsEnabled === false && (
-          <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-4 space-y-2">
-            <p className="font-bold text-amber-900 dark:text-amber-200">
-              Withdraw blocked: no PAYOUT on this PawaPay account
-            </p>
-            <p className="text-sm text-amber-950/90 dark:text-amber-100/90">
-              Error like <code className="text-xs">no active flow configuration airtel_oapi_uga/uga/ugx</code>{" "}
-              means your merchant can <strong>receive</strong> money (DEPOSIT) but cannot{" "}
-              <strong>send</strong> to a phone (PAYOUT) yet.
-            </p>
-            {capabilities.merchantName && (
-              <p className="text-xs text-muted-foreground">
-                Merchant: <strong className="text-foreground">{capabilities.merchantName}</strong>
-                {capabilities.merchantId ? ` · ${capabilities.merchantId}` : ""}
-              </p>
-            )}
-            <ul className="text-xs space-y-1 list-disc list-inside text-muted-foreground">
-              {(capabilities.correspondents || []).map((c) => (
-                <li key={c.correspondent}>
-                  <span className="font-mono text-foreground">{c.correspondent}</span>:{" "}
-                  {(c.operations || []).join(", ") || "—"}
-                  {!c.operations?.includes("PAYOUT") && (
-                    <span className="text-amber-700 dark:text-amber-400"> (no PAYOUT)</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <div className="text-sm space-y-1 pt-1">
-              <p className="font-semibold text-foreground">How to fix (PawaPay, not the app):</p>
-              <ol className="list-decimal list-inside text-xs text-muted-foreground space-y-1">
-                <li>
-                  Log in to the{" "}
-                  <a
-                    href="https://dashboard.pawapay.io/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-700 underline"
-                  >
-                    live PawaPay dashboard
-                  </a>
-                </li>
-                <li>
-                  Email <strong className="text-foreground">support@pawapay.io</strong> (or your
-                  account manager)
-                </li>
-                <li>
-                  Ask to enable <strong className="text-foreground">PAYOUT</strong> for Uganda:{" "}
-                  <code className="text-[11px]">AIRTEL_OAPI_UGA</code> and{" "}
-                  <code className="text-[11px]">MTN_MOMO_UGA</code>, currency UGX
-                </li>
-                <li>After they enable it, refresh this page — withdraw will unlock</li>
-              </ol>
-              {capabilities.howToEnablePayouts && (
-                <p className="text-xs mt-2 text-muted-foreground">{capabilities.howToEnablePayouts}</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {capabilities?.payoutsEnabled && (
-          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-            Payouts enabled
-            {capabilities.airtelPayout ? " · Airtel" : ""}
-            {capabilities.mtnPayout ? " · MTN" : ""}
+        <div className="rounded-xl border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+          <p className="font-semibold text-foreground">PawaPay POST /payouts</p>
+          <p>
+            Sends <code className="text-[11px]">payoutId</code>,{" "}
+            <code className="text-[11px]">amount</code>,{" "}
+            <code className="text-[11px]">currency</code> (UGX),{" "}
+            <code className="text-[11px]">correspondent</code> (AIRTEL_OAPI_UGA / MTN_MOMO_UGA),
+            and recipient MSISDN. Status: ACCEPTED / ENQUEUED / REJECTED → poll until COMPLETED.
           </p>
-        )}
+          {capabilities && !capabilities.payoutsEnabled && (
+            <p className="text-amber-700 dark:text-amber-400">
+              active-conf may not list PAYOUT yet — we still call the API; PawaPay accepts or
+              rejects. Merchant: {capabilities.merchantName || "—"}.
+            </p>
+          )}
+          {capabilities?.payoutsEnabled && (
+            <p className="text-emerald-700 dark:text-emerald-400 font-semibold">
+              PAYOUT listed on active-conf
+              {capabilities.airtelPayout ? " · Airtel" : ""}
+              {capabilities.mtnPayout ? " · MTN" : ""}
+            </p>
+          )}
+        </div>
 
         {showWithdraw && (
           <div className="rounded-2xl border border-border/60 bg-background p-5 space-y-4">
             <h2 className="font-bold flex items-center gap-2">
               <Smartphone className="h-4 w-4 text-emerald-600" />
-              Send money to your wallet
+              Payout to your wallet (POST /payouts)
             </h2>
             <p className="text-sm text-muted-foreground">
-              Funds leave the PawaPay merchant balance and land on the number you enter (Airtel
-              Money or MTN MoMo). Only super admins can withdraw.
+              Enter your Airtel or MTN number. We POST to PawaPay{" "}
+              <code className="text-xs">/payouts</code> — they accept or reject asynchronously.
             </p>
-
-            {capabilities?.payoutsEnabled === false && (
-              <p className="text-sm font-semibold text-red-600">
-                Cannot send yet — enable PAYOUT on PawaPay first (see yellow box above).
-              </p>
-            )}
 
             <div className="grid sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setGateway("airtel_money")}
-                disabled={capabilities?.airtelPayout === false}
                 className={cn(
                   "rounded-xl border-2 p-4 text-left transition-all",
                   gateway === "airtel_money"
                     ? "border-[#ED1C24] bg-[#ED1C24]/10"
-                    : "border-border/50 hover:border-border",
-                  capabilities?.airtelPayout === false && "opacity-50 cursor-not-allowed"
+                    : "border-border/50 hover:border-border"
                 )}
               >
                 <p className="font-bold text-[#ED1C24]">Airtel Money</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {capabilities?.airtelPayout === false
-                    ? "PAYOUT not enabled on PawaPay"
-                    : "Recommended"}
+                <p className="text-xs text-muted-foreground mt-1 font-mono">
+                  correspondent: AIRTEL_OAPI_UGA
                 </p>
               </button>
               <button
                 type="button"
                 onClick={() => setGateway("mtn_momo")}
-                disabled={capabilities?.mtnPayout === false}
                 className={cn(
                   "rounded-xl border-2 p-4 text-left transition-all",
                   gateway === "mtn_momo"
                     ? "border-[#FFCC00] bg-[#FFCC00]/15"
-                    : "border-border/50 hover:border-border",
-                  capabilities?.mtnPayout === false && "opacity-50 cursor-not-allowed"
+                    : "border-border/50 hover:border-border"
                 )}
               >
                 <p className="font-bold text-[#004F71]">MTN MoMo</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {capabilities?.mtnPayout === false
-                    ? "PAYOUT not enabled on PawaPay"
-                    : "MTN wallet"}
+                <p className="text-xs text-muted-foreground mt-1 font-mono">
+                  correspondent: MTN_MOMO_UGA
                 </p>
               </button>
             </div>
@@ -910,13 +852,7 @@ export default function SuperAdminPaymentsPage() {
                     : "bg-[#004F71] hover:bg-[#003555]"
                 )}
                 loading={withdrawing}
-                disabled={
-                  withdrawing ||
-                  available < 500 ||
-                  capabilities?.payoutsEnabled === false ||
-                  (gateway === "airtel_money" && capabilities?.airtelPayout === false) ||
-                  (gateway === "mtn_momo" && capabilities?.mtnPayout === false)
-                }
+                disabled={withdrawing || !phone.trim() || !amount.trim()}
                 onClick={() => void submitWithdraw()}
               >
                 {withdrawing ? (
