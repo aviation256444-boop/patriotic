@@ -429,17 +429,93 @@ function applyRolePrivileges(user: StoredUser, role: UserRole): void {
  * Passwords set via setUserPassword.
  * Promoting to super_admin applies the full privilege pack.
  */
+/**
+ * Member self-service profile update (no role / membership elevation).
+ */
+export function updateOwnProfile(
+  userId: string,
+  actorEmail: string | undefined,
+  patch: {
+    fullName?: string;
+    phone?: string;
+    photoURL?: string;
+    district?: string;
+    subCounty?: string;
+    occupation?: string;
+    education?: string;
+  }
+): User {
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) {
+    // try email match if id mismatch (Firebase vs local)
+    const byEmail = actorEmail
+      ? db.users.findIndex((u) => u.email === actorEmail.toLowerCase().trim())
+      : -1;
+    if (byEmail < 0) throw new Error("User not found");
+    return updateOwnProfile(db.users[byEmail].id, actorEmail, patch);
+  }
+
+  const current = db.users[idx];
+  if (
+    actorEmail &&
+    current.email.toLowerCase() !== actorEmail.toLowerCase().trim()
+  ) {
+    // allow if actor is same user by id only
+    if (current.id !== userId) {
+      throw new Error("You can only edit your own profile");
+    }
+  }
+
+  if (patch.fullName !== undefined) {
+    const fullName = patch.fullName.trim();
+    if (fullName.length < 2) throw new Error("Full name is too short");
+    current.fullName = fullName;
+  }
+  if (patch.phone !== undefined) {
+    current.phone = patch.phone.trim() || undefined;
+  }
+  if (patch.photoURL !== undefined) {
+    current.photoURL = patch.photoURL.trim() || undefined;
+  }
+  if (patch.district !== undefined) {
+    current.district = patch.district.trim() || undefined;
+  }
+  if (patch.subCounty !== undefined) {
+    current.subCounty = patch.subCounty.trim() || undefined;
+  }
+  if (patch.occupation !== undefined) {
+    current.occupation = patch.occupation.trim() || undefined;
+  }
+  if (patch.education !== undefined) {
+    current.education = patch.education.trim() || undefined;
+  }
+  current.updatedAt = new Date().toISOString();
+  db.users[idx] = current;
+  saveDb(db);
+  logActivity({
+    kind: "user_update",
+    action: `Profile updated: ${current.email}`,
+    actor: current.email,
+    target: current.id,
+    meta: { fields: Object.keys(patch), self: true },
+  });
+  return publicUser(current);
+}
+
 export function updateUserByAdmin(
   userId: string,
   patch: {
     fullName?: string;
     email?: string;
     phone?: string;
+    photoURL?: string;
     role?: UserRole;
     membershipStatus?: User["membershipStatus"];
     membershipNumber?: string;
     district?: string;
     occupation?: string;
+    education?: string;
   }
 ): User {
   const db = ensureDb();
@@ -491,6 +567,12 @@ export function updateUserByAdmin(
   }
   if (patch.occupation !== undefined) {
     current.occupation = patch.occupation.trim() || undefined;
+  }
+  if (patch.photoURL !== undefined) {
+    current.photoURL = patch.photoURL.trim() || undefined;
+  }
+  if (patch.education !== undefined) {
+    current.education = patch.education.trim() || undefined;
   }
 
   // Super admin always keeps full power pack even if only other fields updated
