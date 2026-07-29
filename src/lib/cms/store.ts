@@ -187,12 +187,14 @@ export async function upsertItem(
 
     await persist(db);
 
-    // Verify write landed (helps catch disk failures early)
-    const verifyRaw = await fs.readFile(DB_PATH, "utf-8");
-    const verify = JSON.parse(verifyRaw) as CmsDatabase;
+    // Verify write landed (Postgres memory/file)
+    const verify = await ensureDb();
     const verifyList = verify[collection as keyof CmsDatabase];
-    if (!Array.isArray(verifyList) || !verifyList.some((x: { id?: string }) => String(x.id) === id)) {
-      throw new Error("Save verification failed — data was not written to disk");
+    if (
+      !Array.isArray(verifyList) ||
+      !verifyList.some((x: { id?: string }) => String(x.id) === id)
+    ) {
+      throw new Error("Save verification failed — data was not persisted");
     }
 
     return record;

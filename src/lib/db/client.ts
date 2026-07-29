@@ -27,19 +27,28 @@ export function getPool(): Pool {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set");
     }
+    // Internal Render Postgres (hostname like dpg-xxx with no public domain) often works without SSL.
+    // External / Neon need SSL.
+    const isLocal =
+      connectionString.includes("localhost") ||
+      connectionString.includes("127.0.0.1");
+    const isRenderInternal =
+      /@dpg-[a-z0-9-]+(?:\/|:)/i.test(connectionString) &&
+      !connectionString.includes("render.com");
+    const forceSsl = process.env.DATABASE_SSL === "true";
+    const disableSsl =
+      process.env.DATABASE_SSL === "false" || isLocal || isRenderInternal;
+
     pool = new Pool({
       connectionString,
-      // Neon / cloud Postgres often need SSL
-      ssl:
-        process.env.DATABASE_SSL === "false"
+      ssl: forceSsl
+        ? { rejectUnauthorized: false }
+        : disableSsl
           ? undefined
-          : connectionString.includes("localhost") ||
-              connectionString.includes("127.0.0.1")
-            ? undefined
-            : { rejectUnauthorized: false },
+          : { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 15_000,
+      connectionTimeoutMillis: 20_000,
     });
     pool.on("error", (err) => {
       console.error("[db] unexpected pool error", err);
