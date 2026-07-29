@@ -344,7 +344,8 @@ export async function POST(request: Request) {
       },
     });
 
-    const network = gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo";
+    // gateway is MTN only past the Airtel early-return above
+    const network = "MTN MoMo";
     return NextResponse.json({
       success: true,
       withdrawal: final,
@@ -356,14 +357,15 @@ export async function POST(request: Request) {
         currency,
         amount: payout.amount,
         msisdn: payout.msisdn,
+        api: "POST /v2/payouts",
       },
       message:
         final.status === "completed"
           ? `UGX ${amount.toLocaleString()} paid out to ${network} ${phone}.`
           : final.status === "failed"
             ? `Payout failed: ${final.failureReason || "see PawaPay"}`
-            : `Payout ${payout.status} — UGX ${amount.toLocaleString()} to ${phone}. ` +
-              `Final status via callback or poll GET /payouts/${final.payoutId}.`,
+            : `Payout ${payout.status} — UGX ${amount.toLocaleString()} to MTN ${phone}. ` +
+              `Final status: GET /v2/payouts/${final.payoutId}.`,
     });
   } catch (error) {
     console.error(error);
