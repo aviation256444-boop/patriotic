@@ -167,7 +167,8 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     };
   }
 
-  // Exact shape from PawaPay support + official v2 docs
+  // Exact minimal shape from PawaPay support (UGX + MTN/Airtel):
+  // { payoutId, amount, currency, recipient: { type: "MMO", accountDetails: { phoneNumber, provider } } }
   const body: Record<string, unknown> = {
     payoutId,
     amount: amountStr,
@@ -179,28 +180,14 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
         provider,
       },
     },
-    customerMessage: sanitizeCustomerMessage(
-      input.statementDescription || "PYU Withdraw"
-    ),
   };
 
+  // Optional fields (safe; omitted from minimal support example)
+  if (input.statementDescription) {
+    body.customerMessage = sanitizeCustomerMessage(input.statementDescription);
+  }
   if (input.clientReferenceId) {
     body.clientReferenceId = String(input.clientReferenceId).slice(0, 64);
-  }
-
-  // v2 metadata: array of single-key objects
-  if (input.metadata?.length) {
-    body.metadata = input.metadata.slice(0, 10).map((m) => {
-      const key =
-        String(m.fieldName || "meta")
-          .replace(/[^a-zA-Z0-9_]/g, "")
-          .slice(0, 32) || "meta";
-      const entry: Record<string, string | boolean> = {
-        [key]: String(m.fieldValue).slice(0, 64),
-      };
-      if (m.isPII) entry.isPII = true;
-      return entry;
-    });
   }
 
   const url = `${getPawaPayBaseUrl()}/v2/payouts`;
@@ -265,11 +252,22 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
   const status = String(json.status || "").toUpperCase();
 
   if (status === "REJECTED") {
-    const msg =
-      failMsg || failCode || "Payout rejected by PawaPay";
+    let msg = failMsg || failCode || "Payout rejected by PawaPay";
+    if (
+      failCode === "PAYOUTS_NOT_ALLOWED" ||
+      String(msg).toLowerCase().includes("not been configured to make payouts") ||
+      String(msg).toLowerCase().includes("payouts_not_allowed")
+    ) {
+      msg =
+        `Payouts are NOT enabled on this PawaPay merchant for provider ${provider}. ` +
+        `Your API payload is correct (v2). Email support@pawapay.io and ask them to ` +
+        `enable PAYOUT for ${provider} (and AIRTEL_OAPI_UGA / MTN_MOMO_UGA) on your ` +
+        `LIVE account — not only send code examples. ` +
+        `PawaPay said: ${failMsg || failCode}`;
+    }
     return {
       ok: false,
-      error: `PawaPay: ${String(msg)}`,
+      error: msg,
       payoutId: String(json.payoutId || payoutId),
       status: "REJECTED",
       rejectionCode: failCode,

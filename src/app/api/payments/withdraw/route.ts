@@ -223,11 +223,8 @@ export async function POST(request: Request) {
       phone,
       gateway,
       forceAttempt: true,
-      statementDescription: "PYU Admin Withdraw",
-      metadata: [
-        { fieldName: "type", fieldValue: "admin_withdraw" },
-        { fieldName: "actor", fieldValue: actor.email.slice(0, 64), isPII: true },
-      ],
+      // Minimal v2 body (matches PawaPay support example); optional message omitted
+      clientReferenceId: `withdraw-${actor.id}`.slice(0, 64),
     });
 
     if (!payout.ok) {
