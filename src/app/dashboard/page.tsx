@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { DigitalMembershipCard } from "@/components/membership/digital-membership-card";
+import { useNotifications } from "@/hooks/use-notifications";
 import { formatDate } from "@/lib/utils";
 
 type MiniTicket = {
@@ -35,6 +36,7 @@ type MiniTicket = {
 export default function MemberDashboard() {
   const { user } = useAuthStore();
   const [tickets, setTickets] = useState<MiniTicket[]>([]);
+  const { unread: notifUnread } = useNotifications(60000);
 
   useEffect(() => {
     if (!user) return;
@@ -55,7 +57,7 @@ export default function MemberDashboard() {
     { label: "Volunteer Hours", value: user.volunteerHours ?? 0, icon: Clock, color: "text-emerald-500", href: "/dashboard/volunteer" },
     { label: "Badges", value: user.badges?.length ?? 0, icon: Award, color: "text-yellow-500", href: "/dashboard/achievements" },
     { label: "My event tickets", value: tickets.length, icon: Calendar, color: "text-blue-500", href: "/dashboard/events" },
-    { label: "Notifications", value: 5, icon: Bell, color: "text-red-500", href: "/dashboard/notifications" },
+    { label: "Unread alerts", value: notifUnread, icon: Bell, color: "text-red-500", href: "/dashboard/notifications" },
   ];
 
   const onboardingSteps: {

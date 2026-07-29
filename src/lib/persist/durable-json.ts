@@ -41,6 +41,8 @@ export function storeKeyFromPath(filePath: string): string {
       return STORE_KEYS.withdrawals;
     case "activity-log":
       return STORE_KEYS.activity;
+    case "notifications":
+      return STORE_KEYS.notifications;
     default:
       return base;
   }

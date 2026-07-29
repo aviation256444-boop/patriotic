@@ -198,6 +198,23 @@ export async function POST(request: Request) {
       "event-ticket-api"
     );
 
+    try {
+      const { createNotification } = await import("@/lib/notifications/store");
+      createNotification({
+        sourceKey: `ticket-issued:${ticket.id}`,
+        audience: "user",
+        userId: userId || undefined,
+        userEmail,
+        type: "event",
+        title: isFree ? "Event registration confirmed" : "Event payment & ticket confirmed",
+        message: `${event.title} · ${seats} seat(s) · Ticket ${ticket.ticketCode}. Open your e-ticket for the QR code.`,
+        link: `/tickets/${ticket.id}`,
+        meta: { ticketId: ticket.id, amountPaid, paymentMethod },
+      });
+    } catch {
+      /* non-blocking */
+    }
+
     return NextResponse.json({
       success: true,
       ticket,

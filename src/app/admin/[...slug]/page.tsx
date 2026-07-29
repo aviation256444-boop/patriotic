@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Search, MoreHorizontal } from "lucide-react";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { events, newsArticles, projects, galleryItems } from "@/lib/data/content";
 import { formatDate, formatNumber } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAuthStore } from "@/store/auth-store";
 
 const titles: Record<string, string> = {
   members: "User Management",
@@ -209,19 +210,7 @@ export default function AdminSubPage({
         </div>
       )}
 
-      {page === "notifications" && (
-        <div className="rounded-2xl border border-border/50 bg-card p-6 space-y-4">
-          <Input label="Title" placeholder="Notification title" />
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Message</label>
-            <textarea className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/50" placeholder="Notification body..." />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => toast.success("Push notification sent!")}>Send Push</Button>
-            <Button variant="outline" onClick={() => toast.success("In-app notification created")}>In-App Only</Button>
-          </div>
-        </div>
-      )}
+      {page === "notifications" && <AdminBroadcastForm />}
 
       {page === "campaigns" && (
         <div className="grid sm:grid-cols-2 gap-6">
@@ -278,6 +267,107 @@ export default function AdminSubPage({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Real in-app broadcast — requires super admin on API */
+function AdminBroadcastForm() {
+  const { user } = useAuthStore();
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [audience, setAudience] = useState<"all" | "members" | "admins">("all");
+  const [link, setLink] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const send = async () => {
+    if (!user) {
+      toast.error("Sign in required");
+      return;
+    }
+    if (!title.trim() || !message.trim()) {
+      toast.error("Title and message required");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          message,
+          audience,
+          link: link || undefined,
+          type: "info",
+          actorId: user.id,
+          actorEmail: user.email,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Send failed");
+      toast.success("In-app notification published", {
+        description: "Members will see it in their live notification feed.",
+      });
+      setTitle("");
+      setMessage("");
+      setLink("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed", {
+        description: "Broadcasts require Super Admin access.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border/50 bg-card p-6 space-y-4 max-w-xl">
+      <div>
+        <h2 className="font-bold text-lg">Send in-app notification</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Creates a real alert in members&apos; notification feeds (not a static demo toast).
+          Super Admin required.
+        </p>
+      </div>
+      <Input
+        label="Title"
+        placeholder="Notification title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Message</label>
+        <textarea
+          className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+          placeholder="Notification body..."
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">Audience</label>
+        <select
+          className="w-full h-11 rounded-xl border border-border bg-background px-3 text-sm"
+          value={audience}
+          onChange={(e) =>
+            setAudience(e.target.value as "all" | "members" | "admins")
+          }
+        >
+          <option value="all">Everyone</option>
+          <option value="members">Members</option>
+          <option value="admins">Admins only</option>
+        </select>
+      </div>
+      <Input
+        label="Optional link"
+        placeholder="/events or /dashboard"
+        value={link}
+        onChange={(e) => setLink(e.target.value)}
+      />
+      <Button loading={loading} onClick={() => void send()}>
+        Publish to notification feed
+      </Button>
     </div>
   );
 }

@@ -11,6 +11,7 @@ export const STORE_KEYS = {
   tickets: "tickets",
   withdrawals: "withdrawals",
   activity: "activity",
+  notifications: "notifications",
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS] | string;

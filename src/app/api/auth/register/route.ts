@@ -15,6 +15,23 @@ export async function POST(request: Request) {
     // So Admin → Members and CMS Members lists show this account
     await syncUserToCmsMembers(user, "registration");
 
+    try {
+      const { createNotification } = await import("@/lib/notifications/store");
+      createNotification({
+        sourceKey: `welcome:${user.id}`,
+        audience: "user",
+        userId: user.id,
+        userEmail: user.email,
+        type: "system",
+        title: `Welcome to PYU, ${user.fullName.split(" ")[0]}!`,
+        message:
+          "Your account was created successfully. Explore membership, events, and programs from your dashboard.",
+        link: "/dashboard",
+      });
+    } catch {
+      /* non-blocking */
+    }
+
     return NextResponse.json({
       success: true,
       user,

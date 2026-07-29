@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Shield,
   Heart,
+  Bell,
 } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { BrandLogo } from "@/components/shared/brand-logo";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useSiteSettings } from "@/hooks/use-cms";
+import { useNotifications } from "@/hooks/use-notifications";
 import { getWhatsAppGroupUrl } from "@/lib/whatsapp";
 
 const navLinks = [
@@ -78,6 +80,7 @@ export function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { user, logout, isAdmin, isSuperAdmin } = useAuthStore();
   const { data: site } = useSiteSettings();
+  const { unread: notifUnread } = useNotifications(60000);
   const whatsappGroupUrl = getWhatsAppGroupUrl(site);
 
   useEffect(() => {
@@ -162,6 +165,25 @@ export function Header() {
             </Button>
           </Link>
           <ThemeToggle />
+
+          {user ? (
+            <Link
+              href="/dashboard/notifications"
+              aria-label={
+                notifUnread > 0
+                  ? `${notifUnread} unread notifications`
+                  : "Notifications"
+              }
+              className="relative rounded-full p-2 text-foreground/70 hover:bg-muted/50 hover:text-foreground transition-colors"
+            >
+              <Bell className="h-5 w-5" />
+              {notifUnread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {notifUnread > 9 ? "9+" : notifUnread}
+                </span>
+              )}
+            </Link>
+          ) : null}
 
           {user ? (
             <div className="relative">

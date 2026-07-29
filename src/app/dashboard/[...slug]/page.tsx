@@ -20,14 +20,6 @@ const titles: Record<string, string> = {
   downloads: "Downloads",
 };
 
-const notifications = [
-  { id: "1", title: "Event Reminder", message: "Digital Skills Bootcamp starts in 3 days", type: "event", time: "2h ago", read: false },
-  { id: "2", title: "Badge Earned", message: "You earned the Helping Hand badge!", type: "success", time: "1d ago", read: false },
-  { id: "3", title: "Membership Update", message: "Your membership application is under review", type: "info", time: "3d ago", read: true },
-  { id: "4", title: "New Opportunity", message: "Girls in STEM Scholarship applications open", type: "info", time: "5d ago", read: true },
-  { id: "5", title: "Welcome to PYU", message: "Thank you for joining the movement!", type: "system", time: "1w ago", read: true },
-];
-
 const messages = [
   { id: "1", from: "District Coordinator", preview: "Looking forward to seeing you at the next community service...", time: "1d ago", unread: true },
   { id: "2", from: "PYU Support", preview: "Your certificate is ready for download.", time: "3d ago", unread: false },
@@ -47,7 +39,12 @@ export default function DashboardSubPage({
   if (!user) return null;
 
   // Skip pages that have dedicated routes
-  if (["profile", "membership", "settings", "events"].includes(page)) return null;
+  if (
+    ["profile", "membership", "settings", "events", "notifications"].includes(
+      page
+    )
+  )
+    return null;
 
   return (
     <div className="space-y-6">
@@ -111,20 +108,6 @@ export default function DashboardSubPage({
               <p className="font-semibold">{c.name}</p>
               <p className="text-xs text-muted-foreground mt-1">{formatDate(c.date)}</p>
               <Button size="sm" variant="outline" className="mt-3">Download PDF</Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {page === "notifications" && (
-        <div className="rounded-2xl border border-border/50 bg-card divide-y divide-border/50">
-          {notifications.map((n) => (
-            <div key={n.id} className={`p-4 ${!n.read ? "bg-emerald-500/5" : ""}`}>
-              <div className="flex justify-between">
-                <p className="font-semibold text-sm">{n.title}</p>
-                <span className="text-xs text-muted-foreground">{n.time}</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-0.5">{n.message}</p>
             </div>
           ))}
         </div>

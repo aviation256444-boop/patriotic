@@ -448,6 +448,8 @@ export function updateUserByAdmin(
 
   const current = db.users[idx];
   const previousRole = current.role;
+  const previousMembershipStatus = current.membershipStatus;
+  const previousMembershipNumber = current.membershipNumber;
 
   if (patch.email) {
     const email = patch.email.toLowerCase().trim();
@@ -513,6 +515,53 @@ export function updateUserByAdmin(
       badges: current.badges,
     },
   });
+
+  // Real-time membership notifications (not static demo)
+  try {
+    const { createNotification } = require("@/lib/notifications/store") as typeof import("@/lib/notifications/store");
+    if (
+      patch.membershipStatus &&
+      patch.membershipStatus !== previousMembershipStatus
+    ) {
+      createNotification({
+        sourceKey: `membership-status:${current.id}:${patch.membershipStatus}:${Date.now()}`,
+        audience: "user",
+        userId: current.id,
+        userEmail: current.email,
+        type: "membership",
+        title: `Membership ${String(patch.membershipStatus).replace(/_/g, " ")}`,
+        message: `Your membership status is now "${patch.membershipStatus}". Open your digital card for details.`,
+        link: "/dashboard/membership",
+      });
+    }
+    if (patch.membershipNumber && patch.membershipNumber !== previousMembershipNumber) {
+      createNotification({
+        sourceKey: `membership-number:${current.id}:${patch.membershipNumber}`,
+        audience: "user",
+        userId: current.id,
+        userEmail: current.email,
+        type: "membership",
+        title: "Membership number assigned",
+        message: `Your membership number is ${patch.membershipNumber}.`,
+        link: "/dashboard/membership",
+      });
+    }
+    if (patch.role && patch.role !== previousRole) {
+      createNotification({
+        sourceKey: `role-change:${current.id}:${patch.role}:${Date.now()}`,
+        audience: "user",
+        userId: current.id,
+        userEmail: current.email,
+        type: "system",
+        title: "Account role updated",
+        message: `Your role is now ${String(patch.role).replace(/_/g, " ")}. Sign out and back in if menus look outdated.`,
+        link: "/dashboard",
+      });
+    }
+  } catch {
+    /* non-blocking */
+  }
+
   return publicUser(current);
 }
 

@@ -384,6 +384,35 @@ export async function POST(request: Request) {
       "checkout-confirm"
     );
 
+    if (finalStatus === "completed") {
+      try {
+        const { createNotification } = await import("@/lib/notifications/store");
+        const email = String(donation.email || "").trim();
+        if (email) {
+          const purpose = String(donation.purpose || "payment");
+          createNotification({
+            sourceKey: `payment:${donation.id}`,
+            audience: "user",
+            userEmail: email,
+            type: "payment",
+            title:
+              purpose === "donation"
+                ? "Donation received — thank you"
+                : "Payment confirmed",
+            message: `${donation.currency || "UGX"} ${Number(donation.amount || 0).toLocaleString()} via ${gateway.replace(/_/g, " ")}. Ref ${donation.externalId || donation.id}.`,
+            link:
+              purpose === "donation"
+                ? "/donate/success"
+                : purpose === "event"
+                  ? "/dashboard/events"
+                  : "/dashboard",
+          });
+        }
+      } catch {
+        /* non-blocking */
+      }
+    }
+
     return NextResponse.json({
       success: true,
       status: finalStatus,
