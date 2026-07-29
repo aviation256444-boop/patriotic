@@ -337,12 +337,49 @@ h1, h2, h3, h4, h5, h6 {
   top: 1rem;
 }
 
-/* ─── Official receipts: on-screen + single-page print ───────────────────── */
+/* ─── Official receipts: on-screen dark polish + single-page PDF ─────────── */
 .receipt-sheet {
   break-inside: avoid;
   page-break-inside: avoid;
 }
 
+/* Dark mode on-screen: richer card, not muddy grey */
+.dark .receipt-sheet {
+  background: linear-gradient(180deg, #111827 0%, #0a0a0a 100%);
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(16, 185, 129, 0.08);
+  color: #f4f4f5;
+}
+
+.dark .receipt-sheet .receipt-body-title {
+  color: #fafafa;
+}
+
+.dark .receipt-sheet .receipt-meta-cell {
+  background: rgba(24, 24, 27, 0.9);
+  border-color: rgba(63, 63, 70, 0.9);
+}
+
+.dark .receipt-sheet .receipt-ref-strip {
+  background: rgba(24, 24, 27, 0.95);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.dark .receipt-sheet .receipt-qr-box {
+  background: #fff;
+  border-color: #e4e4e7;
+}
+
+.dark .receipt-sheet .receipt-barcode span {
+  background: #e4e4e7;
+}
+
+/**
+ * PDF / print always uses a premium LIGHT document theme.
+ * Browsers in dark mode otherwise ink black pages and washed-out text.
+ */
 @media print {
   @page {
     size: A4;
@@ -350,14 +387,30 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   html,
-  body {
-    background: #fff !important;
+  html.dark,
+  body,
+  body.dark,
+  .dark {
+    background: #ffffff !important;
     color: #0a0a0a !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    color-scheme: light !important;
   }
 
-  /* Hide site chrome & floating UI */
+  /* Reset CSS variables so Tailwind muted/card tokens don't stay dark */
+  :root,
+  html.dark,
+  .dark {
+    --background: #ffffff !important;
+    --foreground: #0a0a0a !important;
+    --card: #ffffff !important;
+    --card-foreground: #0a0a0a !important;
+    --muted: #f4f4f5 !important;
+    --muted-foreground: #52525b !important;
+    --border: #e4e4e7 !important;
+  }
+
   header,
   footer,
   .skip-link,
@@ -368,20 +421,22 @@ h1, h2, h3, h4, h5, h6 {
     display: none !important;
   }
 
-  /* Fixed widgets (header already covered; WA + chat use fixed) */
   body > div > a.fixed,
   .fixed.bottom-6,
-  .fixed.bottom-24 {
+  .fixed.bottom-24,
+  .fixed {
     display: none !important;
   }
 
+  main#main-content,
   main {
     min-height: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
+    background: #ffffff !important;
+    color: #0a0a0a !important;
   }
 
-  /* Collapse page heroes on receipt routes when marked */
   .print-hide-hero {
     display: none !important;
   }
@@ -390,23 +445,129 @@ h1, h2, h3, h4, h5, h6 {
     max-width: none !important;
     margin: 0 !important;
     padding: 0 !important;
+    background: #ffffff !important;
+    color: #0a0a0a !important;
   }
 
-  .receipt-sheet {
+  .receipt-sheet,
+  .dark .receipt-sheet {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    border: 1px solid #d4d4d8 !important;
     overflow: visible !important;
     break-inside: avoid;
     page-break-inside: avoid;
     page-break-after: avoid;
+    border-radius: 12px !important;
+    border: 1px solid #d4d4d8 !important;
+    background: #ffffff !important;
+    color: #0a0a0a !important;
+    box-shadow: none !important;
   }
 
-  /* Prefer one page — tighten spacing slightly when printing */
   .receipt-sheet * {
     box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Header band stays brand green (print colors exact) */
+  .receipt-sheet .receipt-header-band {
+    background: linear-gradient(135deg, #047857 0%, #065f46 45%, #18181b 100%) !important;
+    color: #ffffff !important;
+    border-bottom: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .receipt-sheet .receipt-header-band,
+  .receipt-sheet .receipt-header-band * {
+    color: #ffffff !important;
+  }
+
+  .receipt-sheet .receipt-status-chip {
+    color: #a7f3d0 !important;
+  }
+
+  .receipt-sheet .receipt-body-title {
+    color: #0a0a0a !important;
+  }
+
+  .receipt-sheet .receipt-subtitle,
+  .receipt-sheet .receipt-muted {
+    color: #52525b !important;
+  }
+
+  .receipt-sheet .receipt-chip {
+    background: #ecfdf5 !important;
+    border-color: #6ee7b7 !important;
+    color: #047857 !important;
+  }
+
+  .receipt-sheet .receipt-amount-box {
+    background: #ecfdf5 !important;
+    border-color: #a7f3d0 !important;
+  }
+
+  .receipt-sheet .receipt-amount-value {
+    color: #047857 !important;
+  }
+
+  .receipt-sheet .receipt-highlight-cell {
+    background: linear-gradient(135deg, #ecfdf5 0%, #fffbeb 100%) !important;
+    border-color: #a7f3d0 !important;
+    color: #0a0a0a !important;
+  }
+
+  .receipt-sheet .receipt-highlight-cell .receipt-highlight-label {
+    color: #047857 !important;
+  }
+
+  .receipt-sheet .receipt-meta-cell {
+    background: #fafafa !important;
+    border: 1px solid #e4e4e7 !important;
+    color: #0a0a0a !important;
+  }
+
+  .receipt-sheet .receipt-meta-label {
+    color: #71717a !important;
+  }
+
+  .receipt-sheet .receipt-meta-value {
+    color: #0a0a0a !important;
+  }
+
+  .receipt-sheet .receipt-ref-strip {
+    background: #fafafa !important;
+    border: 1px dashed #a1a1aa !important;
+    color: #0a0a0a !important;
+  }
+
+  .receipt-sheet .receipt-barcode span {
+    background: #18181b !important;
+  }
+
+  .receipt-sheet .receipt-qr-box {
+    background: #ffffff !important;
+    border: 1px solid #e4e4e7 !important;
+  }
+
+  .receipt-sheet .receipt-footer {
+    border-top-color: #e4e4e7 !important;
+    color: #52525b !important;
+  }
+
+  .receipt-sheet .receipt-footer strong,
+  .receipt-sheet .receipt-footer .receipt-org {
+    color: #18181b !important;
+  }
+
+  /* SVG QR must stay black-on-white for scanners */
+  .receipt-sheet .receipt-qr-box svg {
+    background: #ffffff !important;
+  }
+
+  .receipt-sheet .receipt-qr-box svg path,
+  .receipt-sheet .receipt-qr-box svg rect {
+    /* leave QR as rendered */
   }
 }
