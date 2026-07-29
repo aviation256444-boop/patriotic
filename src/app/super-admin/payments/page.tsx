@@ -175,6 +175,9 @@ export default function SuperAdminPaymentsPage() {
     mtnPayout?: boolean;
     airtelDeposit?: boolean;
     mtnDeposit?: boolean;
+    airtelPayoutMarketSupported?: boolean;
+    mtnPayoutMarketSupported?: boolean;
+    payoutProviders?: string[];
     howToEnablePayouts?: string | null;
     correspondents?: Array<{
       correspondent: string;
@@ -197,20 +200,22 @@ export default function SuperAdminPaymentsPage() {
   const [phoneMatchTotal, setPhoneMatchTotal] = useState<number | null>(null);
   const [lookingUpPhone, setLookingUpPhone] = useState(false);
 
-  const [gateway, setGateway] = useState<"airtel_money" | "mtn_momo">("airtel_money");
+  /** Uganda payouts: MTN only (PawaPay — Airtel has no PAYOUT) */
+  const [gateway, setGateway] = useState<"airtel_money" | "mtn_momo">("mtn_momo");
   /** Recipient MSISDN — whatever the super admin types (never hardcoded) */
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [skipBalanceCheck, setSkipBalanceCheck] = useState(false);
 
-  // Restore last recipient number the admin chose (browser only — not a fixed server number)
+  // Restore last recipient; force MTN if Airtel was saved (not valid for payout)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(WITHDRAW_PHONE_KEY);
       if (saved) setPhone(saved);
       const gw = localStorage.getItem(WITHDRAW_GATEWAY_KEY);
-      if (gw === "mtn_momo" || gw === "airtel_money") setGateway(gw);
+      if (gw === "mtn_momo") setGateway("mtn_momo");
+      else setGateway("mtn_momo"); // never default to Airtel for withdraw
     } catch {
       /* ignore */
     }
@@ -795,18 +800,25 @@ export default function SuperAdminPaymentsPage() {
         </div>
 
         <div className="rounded-xl border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-          <p className="font-semibold text-foreground">PawaPay POST /v2/payouts</p>
+          <p className="font-semibold text-foreground">Uganda payouts (PawaPay)</p>
           <p>
-            Matches PawaPay’s documented payload:{" "}
-            <code className="text-[11px]">phoneNumber</code> = number you type,{" "}
-            <code className="text-[11px]">provider</code> = AIRTEL_OAPI_UGA or MTN_MOMO_UGA.
-            Wallet must have balance. Poll <code className="text-[11px]">GET /v2/payouts/{"{payoutId}"}</code>.
+            <strong className="text-foreground">MTN_MOMO_UGA</strong> — payouts supported.{" "}
+            <strong className="text-foreground">AIRTEL_OAPI_UGA</strong> — payouts{" "}
+            <strong className="text-red-600">not</strong> supported. Use an{" "}
+            <strong className="text-foreground">MTN number</strong> only for withdraw.
           </p>
-          {capabilities && !capabilities.payoutsEnabled && (
+          {capabilities?.mtnPayout === false && (
             <p className="text-amber-700 dark:text-amber-400">
-              If withdraw fails with PAYOUTS_NOT_ALLOWED, ask PawaPay to enable payouts on this
-              merchant. Merchant: {capabilities.merchantName || "—"}.
+              Your production account still has no PAYOUT providers enabled (
+              {capabilities.payoutProviders?.length
+                ? capabilities.payoutProviders.join(", ")
+                : "none"}
+              ). Ask PawaPay to enable <strong>PAYOUT for MTN_MOMO_UGA</strong> on LIVE.
+              Merchant: {capabilities.merchantName || "—"}.
             </p>
+          )}
+          {capabilities?.mtnPayout && (
+            <p className="text-emerald-700 font-semibold">MTN payout configured on account ✓</p>
           )}
         </div>
 
@@ -814,50 +826,45 @@ export default function SuperAdminPaymentsPage() {
           <div className="rounded-2xl border-2 border-emerald-500/40 bg-background p-5 space-y-4">
             <h2 className="font-bold flex items-center gap-2">
               <Smartphone className="h-4 w-4 text-emerald-600" />
-              Withdraw to any number you choose
+              Withdraw to any <span className="text-[#004F71]">MTN</span> number you choose
             </h2>
             <p className="text-sm text-muted-foreground">
-              Type the <strong className="text-foreground">exact mobile money number</strong> that
-              should receive the money. Nothing is hard-coded — payout goes only to what you enter.
+              Type the <strong className="text-foreground">MTN MoMo number</strong> that should
+              receive the money (yours or another). Airtel cannot receive payouts in Uganda.
             </p>
 
             <div className="grid sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setGateway("airtel_money")}
+              <div
                 className={cn(
-                  "rounded-xl border-2 p-4 text-left transition-all",
-                  gateway === "airtel_money"
-                    ? "border-[#ED1C24] bg-[#ED1C24]/10"
-                    : "border-border/50 hover:border-border"
+                  "rounded-xl border-2 p-4 text-left opacity-50 cursor-not-allowed",
+                  "border-border/50 bg-muted/30"
                 )}
+                title="Airtel payouts not available in Uganda"
               >
                 <p className="font-bold text-[#ED1C24]">Airtel Money</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Recipient must be an Airtel number
+                <p className="text-xs text-red-600 mt-1 font-semibold">
+                  Not available for payouts (UGA)
                 </p>
-              </button>
+              </div>
               <button
                 type="button"
                 onClick={() => setGateway("mtn_momo")}
                 className={cn(
                   "rounded-xl border-2 p-4 text-left transition-all",
-                  gateway === "mtn_momo"
-                    ? "border-[#FFCC00] bg-[#FFCC00]/15"
-                    : "border-border/50 hover:border-border"
+                  "border-[#FFCC00] bg-[#FFCC00]/15 ring-2 ring-[#FFCC00]/30"
                 )}
               >
                 <p className="font-bold text-[#004F71]">MTN MoMo</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Recipient must be an MTN number
+                  provider: MTN_MOMO_UGA · use this for withdraw
                 </p>
               </button>
             </div>
 
-            <div className="rounded-xl border-2 border-emerald-600/40 bg-emerald-500/5 p-4 space-y-3">
+            <div className="rounded-xl border-2 border-[#004F71]/40 bg-[#004F71]/5 p-4 space-y-3">
               <Input
-                label="Recipient phone (type any number you want)"
-                placeholder="e.g. 07XX XXX XXX  — your number or another wallet"
+                label="MTN recipient phone (any MTN number you want)"
+                placeholder="e.g. 0772 123 456 or 256772123456"
                 inputMode="tel"
                 autoComplete="tel"
                 autoFocus
@@ -871,20 +878,19 @@ export default function SuperAdminPaymentsPage() {
                       Money will be sent to:{" "}
                       <span className="font-mono">{phone.trim()}</span>
                       <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                        PawaPay MSISDN: {toUgMsisdnPreview(phone)} ·{" "}
-                        {gateway === "airtel_money" ? "Airtel" : "MTN"}
+                        PawaPay: phoneNumber={toUgMsisdnPreview(phone)} · provider=MTN_MOMO_UGA
                       </span>
                     </p>
                   ) : (
                     <p className="text-amber-700 text-xs">
-                      Enter a valid UG mobile number (07… or 256…)
+                      Enter a valid UG MTN number (077… / 078… / 2567…)
                     </p>
                   )}
                 </div>
               )}
               {!phone.trim() && (
                 <p className="text-xs text-amber-700 font-medium">
-                  No number entered yet — type the wallet that should receive this withdraw.
+                  Type the MTN wallet that should receive this withdraw.
                 </p>
               )}
             </div>
@@ -931,15 +937,13 @@ export default function SuperAdminPaymentsPage() {
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
                 size="lg"
-                className={cn(
-                  "font-bold text-white flex-1",
-                  gateway === "airtel_money"
-                    ? "bg-[#ED1C24] hover:bg-[#c41620]"
-                    : "bg-[#004F71] hover:bg-[#003555]"
-                )}
+                className="font-bold text-white flex-1 bg-[#004F71] hover:bg-[#003555]"
                 loading={withdrawing}
                 disabled={withdrawing || !phone.trim() || !amount.trim()}
-                onClick={() => void submitWithdraw()}
+                onClick={() => {
+                  setGateway("mtn_momo");
+                  void submitWithdraw();
+                }}
               >
                 {withdrawing ? (
                   <>
@@ -948,8 +952,8 @@ export default function SuperAdminPaymentsPage() {
                 ) : (
                   <>
                     <Banknote className="h-4 w-4" />
-                    Send UGX {(Math.round(Number(amount)) || 0).toLocaleString() || "—"} →{" "}
-                    {phone.trim() || "type number first"}
+                    Send UGX {(Math.round(Number(amount)) || 0).toLocaleString() || "—"} → MTN{" "}
+                    {phone.trim() || "type number"}
                   </>
                 )}
               </Button>

@@ -127,9 +127,12 @@ export async function GET(request: Request) {
             poll: "GET /v2/payouts/{payoutId}",
             docs: "https://docs.pawapay.io/v2/api-reference/payouts/initiate-payout",
           },
-          howToEnablePayouts: activeConf.payoutsEnabled
+          payoutProviders: activeConf.payoutProviders,
+          airtelPayoutMarketSupported: activeConf.airtelPayoutMarketSupported,
+          mtnPayoutMarketSupported: activeConf.mtnPayoutMarketSupported,
+          howToEnablePayouts: activeConf.mtnPayout
             ? null
-            : "If PawaPay returns PAYOUTS_NOT_ALLOWED, ask support to enable payouts for MTN_MOMO_UGA and AIRTEL_OAPI_UGA. App now uses POST /v2/payouts as they documented.",
+            : "Uganda: use MTN only for payouts (Airtel not supported). Call GET /v2/active-conf?country=UGA&operationType=PAYOUT — if empty, ask PawaPay to enable PAYOUT for MTN_MOMO_UGA on production.",
         },
         withdrawals: refreshed,
       },
@@ -176,13 +179,27 @@ export async function POST(request: Request) {
     }
     if (gateway !== "mtn_momo" && gateway !== "airtel_money") {
       return NextResponse.json(
-        { error: "Choose Airtel Money or MTN MoMo" },
+        { error: "Choose MTN MoMo (required for Uganda payouts)" },
+        { status: 400 }
+      );
+    }
+    // PawaPay: Airtel UGA has no PAYOUT flow
+    if (gateway === "airtel_money") {
+      return NextResponse.json(
+        {
+          error:
+            "Airtel cannot be used for withdraw/payouts in Uganda. " +
+            "Choose MTN MoMo and enter an MTN number. " +
+            "PawaPay: only MTN_MOMO_UGA supports PAYOUT for UGA/UGX.",
+          code: "AIRTEL_PAYOUT_NOT_SUPPORTED",
+          useInstead: "mtn_momo",
+        },
         { status: 400 }
       );
     }
     if (!phone) {
       return NextResponse.json(
-        { error: "Enter the mobile money number to receive funds" },
+        { error: "Enter the MTN MoMo number to receive funds" },
         { status: 400 }
       );
     }

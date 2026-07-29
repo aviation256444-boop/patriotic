@@ -167,7 +167,24 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     };
   }
 
-  // Exact minimal shape from PawaPay support (UGX + MTN/Airtel):
+  // Uganda market: Airtel cannot do payouts (PawaPay support)
+  if (input.gateway === "airtel_money") {
+    return {
+      ok: false,
+      error:
+        "Airtel (AIRTEL_OAPI_UGA) cannot be used for payouts in Uganda. " +
+        "Switch to MTN MoMo and enter an MTN number (07xx…). " +
+        "PawaPay confirmed: only MTN_MOMO_UGA supports payouts for UGA/UGX.",
+      rejectionCode: "AIRTEL_PAYOUT_NOT_SUPPORTED",
+      payoutId,
+      msisdn: phoneNumber,
+      amount: amountStr,
+      currency,
+      correspondent: provider,
+    };
+  }
+
+  // Exact minimal shape from PawaPay support (UGX + MTN):
   // { payoutId, amount, currency, recipient: { type: "MMO", accountDetails: { phoneNumber, provider } } }
   const body: Record<string, unknown> = {
     payoutId,
