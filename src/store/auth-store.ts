@@ -5,9 +5,10 @@ import { persist } from "zustand/middleware";
 import type { User } from "@/types";
 import * as authService from "@/lib/firebase/auth";
 
-/** Persist every login into data/users.json so Super Admin always sees accounts */
+/** Persist session into server DB; always return the server's user (includes promoted roles). */
 async function syncUserToServer(user: User): Promise<User> {
   try {
+    // Do NOT send client role for elevating — server DB is source of truth for super_admin
     const res = await fetch("/api/auth/ensure", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -17,7 +18,7 @@ async function syncUserToServer(user: User): Promise<User> {
         fullName: user.fullName,
         phone: user.phone,
         photoURL: user.photoURL,
-        role: user.role,
+        // Only send role for brand-new registration hints; ensure never downgrades
         membershipStatus: user.membershipStatus,
       }),
       cache: "no-store",
@@ -25,6 +26,28 @@ async function syncUserToServer(user: User): Promise<User> {
     if (!res.ok) return user;
     const data = await res.json();
     if (data.user) {
+      // Prefer email lookup next so promotions by email always win
+      try {
+        const q = data.user.email
+          ? `email=${encodeURIComponent(data.user.email)}`
+          : data.user.id
+            ? `userId=${encodeURIComponent(data.user.id)}`
+            : "";
+        if (q) {
+          const me = await fetch(`/api/auth/me?${q}`, { cache: "no-store" });
+          if (me.ok) {
+            const meData = await me.json();
+            if (meData.user) {
+              if (typeof window !== "undefined") {
+                localStorage.setItem("pyu_user", JSON.stringify(meData.user));
+              }
+              return meData.user as User;
+            }
+          }
+        }
+      } catch {
+        /* fall through */
+      }
       if (typeof window !== "undefined") {
         localStorage.setItem("pyu_user", JSON.stringify(data.user));
       }
@@ -34,6 +57,14 @@ async function syncUserToServer(user: User): Promise<User> {
     /* keep session user */
   }
   return user;
+}
+
+function roleIsSuperAdmin(role: unknown): boolean {
+  const r = String(role || "")
+    .toLowerCase()
+    .trim()
+    .replace(/-/g, "_");
+  return r === "super_admin" || r === "superadmin";
 }
 
 interface AuthState {
@@ -139,15 +170,19 @@ export const useAuthStore = create<AuthState>()(
         const current = get().user;
         if (!current?.id && !current?.email) return null;
         try {
-          // Re-bind session into server DB (survives forgotten accounts)
-          if (current.email) {
-            const synced = await syncUserToServer(current);
-            set({ user: synced });
-          }
-          const q = current.id
-            ? `userId=${encodeURIComponent(current.id)}`
-            : `email=${encodeURIComponent(current.email)}`;
-          const res = await fetch(`/api/auth/me?${q}`, { cache: "no-store" });
+          // Re-bind session; server returns DB role (super_admin after promotion)
+          const synced = await syncUserToServer(current);
+          set({ user: synced });
+
+          // Prefer email — stable across Firebase uid vs local id
+          const email = synced.email || current.email;
+          const id = synced.id || current.id;
+          const qs = new URLSearchParams();
+          if (email) qs.set("email", email);
+          if (id) qs.set("userId", id);
+          const res = await fetch(`/api/auth/me?${qs.toString()}`, {
+            cache: "no-store",
+          });
           if (!res.ok) return get().user;
           const data = await res.json();
           if (data.user) {
@@ -160,13 +195,18 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           /* keep session */
         }
-        return current;
+        return get().user;
       },
       isAdmin: () => {
-        const role = get().user?.role;
-        return role === "admin" || role === "super_admin" || role === "regional_admin" || role === "district_admin";
+        const role = String(get().user?.role || "");
+        return (
+          role === "admin" ||
+          roleIsSuperAdmin(role) ||
+          role === "regional_admin" ||
+          role === "district_admin"
+        );
       },
-      isSuperAdmin: () => get().user?.role === "super_admin",
+      isSuperAdmin: () => roleIsSuperAdmin(get().user?.role),
     }),
     {
       name: "pyu-auth",

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import {
-  findUserByEmail,
-  findUserById,
+  findUserFlexible,
   updateOwnCredentials,
+  applyRolePrivilegesIfSuper,
+  publicUserFromStored,
 } from "@/lib/auth/local-users";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/auth/me?userId=... or ?email=...
- * Refresh current user from data/users.json (so login details stay in sync).
+ * Refresh current user from durable store (role after promotion is here).
  */
 export async function GET(request: Request) {
   try {
@@ -17,19 +18,23 @@ export async function GET(request: Request) {
     const userId = searchParams.get("userId") || "";
     const email = searchParams.get("email") || "";
 
-    const stored =
-      (userId && findUserById(userId)) ||
-      (email && findUserByEmail(email)) ||
-      null;
+    // Prefer email first so Firebase uid mismatches still resolve promotions
+    let stored = findUserFlexible(email, userId);
 
     if (!stored) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const { passwordHash: _, ...user } = stored;
-    void _;
+    // Keep super admin privilege pack complete
+    stored = applyRolePrivilegesIfSuper(stored);
+
+    const user = publicUserFromStored(stored);
     return NextResponse.json(
-      { success: true, user },
+      {
+        success: true,
+        user,
+        isSuperAdmin: user.role === "super_admin",
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {

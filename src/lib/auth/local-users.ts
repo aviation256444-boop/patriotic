@@ -69,6 +69,33 @@ function publicUser(u: StoredUser): User {
   };
 }
 
+/** Public export for API routes */
+export function publicUserFromStored(u: StoredUser): User {
+  return publicUser(u);
+}
+
+/** Ensure super_admin always has full privilege pack; returns updated row */
+export function applyRolePrivilegesIfSuper(u: StoredUser): StoredUser {
+  if (!isSuperAdminRole(u.role)) return u;
+  applyRolePrivileges(u, "super_admin");
+  const db = ensureDb();
+  const idx = db.users.findIndex((x) => x.id === u.id);
+  if (idx >= 0) {
+    db.users[idx] = {
+      ...db.users[idx],
+      role: "super_admin",
+      membershipStatus: u.membershipStatus,
+      badges: u.badges,
+      twoFactorEnabled: u.twoFactorEnabled,
+      membershipNumber: u.membershipNumber || db.users[idx].membershipNumber,
+      updatedAt: new Date().toISOString(),
+    };
+    saveDb(db);
+    return db.users[idx];
+  }
+  return u;
+}
+
 /**
  * First-run bootstrap only. Passwords can be overridden with env:
  * SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD, ADMIN_EMAIL, ADMIN_PASSWORD
@@ -260,8 +287,42 @@ export function findUserById(id: string): StoredUser | null {
   return db.users.find((u) => u.id === id) || null;
 }
 
+/** Resolve a user by id or email (session often has one, DB the other). */
+export function findUserFlexible(
+  ...ids: Array<string | null | undefined>
+): StoredUser | null {
+  for (const raw of ids) {
+    if (!raw) continue;
+    const s = String(raw).trim();
+    if (!s) continue;
+    const byId = findUserById(s);
+    if (byId) return byId;
+    if (s.includes("@")) {
+      const byEmail = findUserByEmail(s);
+      if (byEmail) return byEmail;
+    }
+  }
+  return null;
+}
+
+/** Normalize role strings from forms / JSON / DB */
+export function normalizeRole(role: unknown): UserRole {
+  const r = String(role || "member")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/-+/g, "_");
+  if (r === "superadmin" || r === "super" || r === "owner") return "super_admin";
+  if (isValidRole(r)) return r;
+  return "member";
+}
+
+export function isSuperAdminRole(role: unknown): boolean {
+  return normalizeRole(role) === "super_admin";
+}
+
 export function countSuperAdmins(): number {
-  return ensureDb().users.filter((u) => u.role === "super_admin").length;
+  return ensureDb().users.filter((u) => isSuperAdminRole(u.role)).length;
 }
 
 const ALLOWED_ROLES: UserRole[] = [
@@ -554,22 +615,49 @@ export function recordLogin(userId: string): void {
 
 /** Require that actor is a super_admin in the local DB. */
 export function requireSuperAdmin(actorEmailOrId: string): StoredUser {
-  const actor =
-    findUserById(actorEmailOrId) || findUserByEmail(actorEmailOrId);
-  if (!actor || actor.role !== "super_admin") {
+  const actor = findUserFlexible(actorEmailOrId);
+  if (!actor || !isSuperAdminRole(actor.role)) {
     throw new Error("Super admin access required");
+  }
+  // Ensure privilege pack is complete every time they act as super admin
+  if (actor.role === "super_admin") {
+    applyRolePrivileges(actor, "super_admin");
+    const db = ensureDb();
+    const idx = db.users.findIndex((u) => u.id === actor.id);
+    if (idx >= 0) {
+      db.users[idx] = { ...db.users[idx], ...actor };
+      saveDb(db);
+    }
   }
   return actor;
 }
 
 /** Try id then email (session may use Firebase uid while DB uses local id). */
-export function requireSuperAdminAny(...ids: Array<string | null | undefined>): StoredUser {
-  for (const id of ids) {
-    if (!id) continue;
-    const actor = findUserById(id) || findUserByEmail(id);
-    if (actor?.role === "super_admin") return actor;
+export function requireSuperAdminAny(
+  ...ids: Array<string | null | undefined>
+): StoredUser {
+  const actor = findUserFlexible(...ids);
+  if (!actor || !isSuperAdminRole(actor.role)) {
+    throw new Error("Super admin access required");
   }
-  throw new Error("Super admin access required");
+  // Re-apply full super powers so promoted users always have complete access
+  applyRolePrivileges(actor, "super_admin");
+  const db = ensureDb();
+  const idx = db.users.findIndex((u) => u.id === actor.id);
+  if (idx >= 0) {
+    db.users[idx] = {
+      ...db.users[idx],
+      role: "super_admin",
+      membershipStatus: actor.membershipStatus,
+      badges: actor.badges,
+      twoFactorEnabled: actor.twoFactorEnabled,
+      membershipNumber: actor.membershipNumber,
+      updatedAt: new Date().toISOString(),
+    };
+    saveDb(db);
+    return db.users[idx];
+  }
+  return actor;
 }
 
 const STAFF_ROLES: UserRole[] = [
@@ -580,13 +668,14 @@ const STAFF_ROLES: UserRole[] = [
 ];
 
 /** Admin or super admin may list registered login accounts. */
-export function requireStaffAny(...ids: Array<string | null | undefined>): StoredUser {
-  for (const id of ids) {
-    if (!id) continue;
-    const actor = findUserById(id) || findUserByEmail(id);
-    if (actor && STAFF_ROLES.includes(actor.role)) return actor;
+export function requireStaffAny(
+  ...ids: Array<string | null | undefined>
+): StoredUser {
+  const actor = findUserFlexible(...ids);
+  if (!actor || !STAFF_ROLES.includes(normalizeRole(actor.role))) {
+    throw new Error("Admin access required");
   }
-  throw new Error("Admin access required");
+  return actor;
 }
 
 export function nextMembershipNumber(): string {
