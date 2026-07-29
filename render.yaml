@@ -1,7 +1,11 @@
 # Service: patriotic-app
 # Public URL: https://patriotic-app.onrender.com
 # Repo: https://github.com/aviation256444-boop/patriotic (branch main)
-# Set PAWAPAY_API_TOKEN (+ optional Cloudinary) in Dashboard → Environment
+# Set secrets in Dashboard → Environment (do not commit):
+#   DATABASE_URL   — Postgres (Neon free / Render Postgres) — REQUIRED for data that survives redeploys
+#   PAWAPAY_API_TOKEN
+#   optional Cloudinary
+# See DATABASE.md
 services:
   - type: web
     name: patriotic-app
@@ -65,3 +69,6 @@ services:
       # Show email OTP on-screen when Resend email is not configured
       - key: AUTH_SHOW_OTP
         value: "true"
+      # Postgres — set in Dashboard (Neon free tier recommended). Without it, JSON files are wiped on redeploy.
+      # - key: DATABASE_URL
+      #   sync: false

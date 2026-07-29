@@ -15,10 +15,13 @@ Live app: **https://patriotic-app.onrender.com**
 
 | Key | Value |
 |-----|--------|
+| `DATABASE_URL` | **Postgres connection string** (Neon free / Supabase / Render Postgres) — keeps users, donations, CMS after redeploy. See **DATABASE.md** |
 | `PAWAPAY_API_TOKEN` | Your **live** PawaPay token |
 | `NEXT_PUBLIC_APP_URL` | `https://patriotic-app.onrender.com` |
 | `CLOUDINARY_CLOUD_NAME` *(optional)* | Permanent logo/image hosting |
 | `CLOUDINARY_UPLOAD_PRESET` *(optional)* | Unsigned upload preset |
+
+After deploy, check: `https://patriotic-app.onrender.com/api/system/db-health` → should show `"backend":"postgres"`.
 
 Other PawaPay / app vars are already in `render.yaml`.
 

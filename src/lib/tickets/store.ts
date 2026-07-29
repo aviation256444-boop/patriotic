@@ -1,19 +1,22 @@
 /**
- * Event tickets & e-receipts — file-backed store.
+ * Event tickets & e-receipts — durable store (Postgres when DATABASE_URL set).
  * Tickets are only written after free registration or confirmed payment.
  */
 
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
+import {
+  readJsonFile,
+  writeWithBackup,
+  initDurableStore,
+} from "@/lib/persist/durable-json";
+import { STORE_KEYS } from "@/lib/db/kv-store";
 
 export type TicketStatus = "confirmed" | "cancelled" | "used";
 
 export type EventTicket = {
   id: string;
-  /** Unique public receipt / ticket code shown to user & QR */
   ticketCode: string;
-  /** Unique e-receipt id */
   receiptId: string;
   eventId: string;
   eventSlug: string;
@@ -25,7 +28,6 @@ export type EventTicket = {
   seats: number;
   amountPaid: number;
   currency: string;
-  /** free | mtn_momo | airtel_money | card | bank */
   paymentMethod: string;
   paymentId?: string;
   paymentExternalId?: string;
@@ -38,44 +40,21 @@ export type EventTicket = {
 
 type TicketsDb = { tickets: EventTicket[] };
 
-const DATA_DIR = join(process.cwd(), "data");
-const FILE = join(DATA_DIR, "tickets.json");
-
-function writeAtomic(path: string, content: string) {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, content, "utf8");
-  try {
-    renameSync(tmp, path);
-  } catch {
-    writeFileSync(path, content, "utf8");
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("fs").unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-  }
-}
+const FILE = join(process.cwd(), "data", "tickets.json");
 
 function ensureDb(): TicketsDb {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(FILE)) {
-    const empty: TicketsDb = { tickets: [] };
-    writeAtomic(FILE, JSON.stringify(empty, null, 2));
-    return empty;
-  }
-  try {
-    const parsed = JSON.parse(readFileSync(FILE, "utf8")) as TicketsDb;
-    if (!Array.isArray(parsed.tickets)) return { tickets: [] };
-    return parsed;
-  } catch {
-    return { tickets: [] };
-  }
+  void initDurableStore();
+  const parsed = readJsonFile<TicketsDb>(FILE);
+  if (parsed && Array.isArray(parsed.tickets)) return parsed;
+  const empty: TicketsDb = { tickets: [] };
+  writeWithBackup(FILE, JSON.stringify(empty, null, 2));
+  return empty;
 }
 
 function saveDb(db: TicketsDb) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeAtomic(FILE, JSON.stringify(db, null, 2));
+  writeWithBackup(FILE, JSON.stringify(db, null, 2));
+  // key alias for clarity in Postgres
+  void STORE_KEYS.tickets;
 }
 
 function codePart(n = 6) {
@@ -105,7 +84,7 @@ export function getTicketByCode(code: string): EventTicket | null {
 export function seatsSoldForEvent(eventId: string): number {
   return ensureDb()
     .tickets.filter((t) => t.eventId === eventId && t.status === "confirmed")
-    .reduce((sum, t) => sum + (t.seats || 1), 0);
+    .reduce((s, t) => s + (t.seats || 0), 0);
 }
 
 export function createConfirmedTicket(input: {
@@ -118,31 +97,28 @@ export function createConfirmedTicket(input: {
   userPhone?: string;
   seats: number;
   amountPaid: number;
-  currency?: string;
+  currency: string;
   paymentMethod: string;
   paymentId?: string;
   paymentExternalId?: string;
 }): EventTicket {
-  const seats = Math.max(1, Math.round(Number(input.seats) || 1));
+  const db = ensureDb();
   const now = new Date().toISOString();
   const id = randomUUID();
-  const ticketCode = `TKT-${codePart(4)}-${codePart(6)}`;
-  const receiptId = `RCPT-${Date.now().toString(36).toUpperCase()}-${codePart(4)}`;
-
   const ticket: EventTicket = {
     id,
-    ticketCode,
-    receiptId,
+    ticketCode: `TKT-${codePart(4)}-${codePart(4)}`,
+    receiptId: `RCP-${Date.now().toString(36).toUpperCase()}-${codePart(4)}`,
     eventId: input.eventId,
     eventSlug: input.eventSlug,
     eventTitle: input.eventTitle,
     userId: input.userId,
     userName: input.userName,
-    userEmail: input.userEmail,
+    userEmail: input.userEmail.toLowerCase(),
     userPhone: input.userPhone,
-    seats,
-    amountPaid: Math.max(0, Number(input.amountPaid) || 0),
-    currency: (input.currency || "UGX").toUpperCase(),
+    seats: input.seats,
+    amountPaid: input.amountPaid,
+    currency: input.currency,
     paymentMethod: input.paymentMethod,
     paymentId: input.paymentId,
     paymentExternalId: input.paymentExternalId,
@@ -151,53 +127,41 @@ export function createConfirmedTicket(input: {
     createdAt: now,
     updatedAt: now,
   };
-
-  const db = ensureDb();
-  // prevent duplicate ticket for same paid paymentId
-  if (input.paymentId) {
-    const existing = db.tickets.find(
-      (t) => t.paymentId === input.paymentId && t.status === "confirmed"
-    );
-    if (existing) return existing;
-  }
-
-  db.tickets.unshift(ticket);
+  db.tickets.push(ticket);
   saveDb(db);
   return ticket;
 }
 
 export function paymentStats() {
-  const tickets = ensureDb().tickets.filter((t) => t.status === "confirmed");
-  const totalRevenue = tickets.reduce((s, t) => s + (t.amountPaid || 0), 0);
+  const tickets = listTickets().filter((t) => t.status === "confirmed");
+  const totalRevenue = tickets.reduce((s, t) => s + (Number(t.amountPaid) || 0), 0);
   const totalSeats = tickets.reduce((s, t) => s + (t.seats || 0), 0);
-  const byEvent: Record<
+  const byEventMap = new Map<
     string,
     { eventId: string; eventTitle: string; seats: number; revenue: number; tickets: number }
-  > = {};
+  >();
   const byGateway: Record<string, number> = {};
-
   for (const t of tickets) {
-    if (!byEvent[t.eventId]) {
-      byEvent[t.eventId] = {
-        eventId: t.eventId,
-        eventTitle: t.eventTitle,
-        seats: 0,
-        revenue: 0,
-        tickets: 0,
-      };
-    }
-    byEvent[t.eventId].seats += t.seats;
-    byEvent[t.eventId].revenue += t.amountPaid;
-    byEvent[t.eventId].tickets += 1;
-    byGateway[t.paymentMethod] = (byGateway[t.paymentMethod] || 0) + t.amountPaid;
+    const cur = byEventMap.get(t.eventId) || {
+      eventId: t.eventId,
+      eventTitle: t.eventTitle,
+      seats: 0,
+      revenue: 0,
+      tickets: 0,
+    };
+    cur.seats += t.seats || 0;
+    cur.revenue += Number(t.amountPaid) || 0;
+    cur.tickets += 1;
+    byEventMap.set(t.eventId, cur);
+    const g = t.paymentMethod || "unknown";
+    byGateway[g] = (byGateway[g] || 0) + (Number(t.amountPaid) || 0);
   }
-
   return {
     totalRevenue,
     totalSeats,
     totalTickets: tickets.length,
-    byEvent: Object.values(byEvent),
+    byEvent: Array.from(byEventMap.values()),
     byGateway,
-    recent: tickets.slice(0, 50),
+    recent: tickets.slice(0, 40),
   };
 }

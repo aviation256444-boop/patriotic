@@ -10,12 +10,16 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  // pg is a Node native-ish package — keep external for server
+  serverExternalPackages: ["pg"],
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion", "recharts"],
     serverActions: {
       bodySizeLimit: "25mb",
     },
   },
+  // instrumentation.ts initializes Postgres durable store on boot
+  // (Next 15 enables instrumentation by default)
   // Runtime uploads must be served by /api/uploads — Next does not serve
   // files written to /public after production build (Render free tier bug).
   async rewrites() {

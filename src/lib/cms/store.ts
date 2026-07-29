@@ -1,91 +1,65 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { createSeedDatabase } from "./seed";
 import type { CmsDatabase, AuditLog } from "./types";
+import {
+  initDurableStore,
+  loadStoreAsync,
+  saveStoreAsync,
+  readJsonFile,
+  writeWithBackup,
+} from "@/lib/persist/durable-json";
+import { STORE_KEYS } from "@/lib/db/kv-store";
+import { isPostgresEnabled } from "@/lib/db/client";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "cms-db.json");
 
 let writeLock: Promise<void> = Promise.resolve();
 
-async function tryReadCmsFile(filePath: string): Promise<CmsDatabase | null> {
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    const db = JSON.parse(raw) as CmsDatabase;
-    if (!db || typeof db !== "object") return null;
-    return db;
-  } catch {
-    return null;
+function normalizeCms(db: CmsDatabase): CmsDatabase {
+  const seed = createSeedDatabase();
+  db.site = { ...seed.site, ...db.site };
+  if (!Array.isArray(db.leaders)) db.leaders = seed.leaders;
+  if (!Array.isArray(db.media)) {
+    (db as CmsDatabase & { media?: unknown[] }).media = [];
   }
+  if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
+  if (!Array.isArray(db.donations)) db.donations = [];
+  return db;
 }
 
 async function ensureDb(): Promise<CmsDatabase> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await initDurableStore();
 
-  // Prefer live file, then backups — NEVER invent seed over real content
-  const candidates = [
-    DB_PATH,
-    `${DB_PATH}.bak`,
-    path.join(DATA_DIR, "backups", "cms-db.json.latest"),
-  ];
-  let db: CmsDatabase | null = null;
-  for (const p of candidates) {
-    db = await tryReadCmsFile(p);
-    if (db) {
-      if (p !== DB_PATH) {
-        console.warn(`[cms] Restored cms-db.json from ${p}`);
-        await writeAtomic(DB_PATH, JSON.stringify(db, null, 2));
-      }
-      break;
+  // Postgres-first
+  if (isPostgresEnabled()) {
+    const fromDb = await loadStoreAsync<CmsDatabase>(STORE_KEYS.cms, DB_PATH);
+    if (fromDb && typeof fromDb === "object") {
+      return normalizeCms(fromDb);
     }
   }
 
-  if (db) {
-    const seed = createSeedDatabase();
-    // Only fill missing site keys — never wipe collections / events / logos
-    db.site = { ...seed.site, ...db.site };
-    if (!Array.isArray(db.leaders)) db.leaders = seed.leaders;
-    if (!Array.isArray(db.media)) {
-      (db as CmsDatabase & { media?: unknown[] }).media = [];
-    }
-    if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
-    return db;
+  // File / durable sync read
+  const fromFile = readJsonFile<CmsDatabase>(DB_PATH);
+  if (fromFile && typeof fromFile === "object") {
+    return normalizeCms(fromFile);
   }
 
   // Truly first boot — seed once only
   console.warn("[cms] No cms-db found — seeding once (will not overwrite later)");
   const seed = createSeedDatabase();
-  await writeAtomic(DB_PATH, JSON.stringify(seed, null, 2));
+  await persist(seed);
   return seed;
-}
-
-/** Windows-safe atomic write (rename over existing file can fail on Win) */
-async function writeAtomic(filePath: string, content: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmp, content, "utf-8");
-  try {
-    await fs.rename(tmp, filePath);
-  } catch {
-    // Fallback: overwrite destination then remove temp
-    await fs.writeFile(filePath, content, "utf-8");
-    await fs.unlink(tmp).catch(() => undefined);
-  }
 }
 
 async function persist(db: CmsDatabase): Promise<void> {
   db.updatedAt = new Date().toISOString();
-  const json = JSON.stringify(db, null, 2);
-  // Primary
-  await writeAtomic(DB_PATH, json);
-  // Backup copies so a bad write / partial redeploy can recover
+  await saveStoreAsync(STORE_KEYS.cms, db, DB_PATH);
+  // Keep file mirror via writeWithBackup path too
   try {
-    await writeAtomic(`${DB_PATH}.bak`, json);
-    const snapDir = path.join(DATA_DIR, "backups");
-    await fs.mkdir(snapDir, { recursive: true });
-    await writeAtomic(path.join(snapDir, "cms-db.json.latest"), json);
-  } catch (e) {
-    console.warn("[cms] backup write failed", e);
+    writeWithBackup(DB_PATH, JSON.stringify(db, null, 2));
+  } catch {
+    /* ignore */
   }
 }
 

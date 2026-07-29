@@ -4,8 +4,12 @@
  */
 
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
+import {
+  readJsonFile,
+  writeWithBackup,
+  initDurableStore,
+} from "@/lib/persist/durable-json";
 
 export type WithdrawalStatus =
   | "pending"
@@ -48,44 +52,19 @@ export type Withdrawal = {
 
 type WithdrawalsDb = { withdrawals: Withdrawal[] };
 
-const DATA_DIR = join(process.cwd(), "data");
-const FILE = join(DATA_DIR, "withdrawals.json");
-
-function writeAtomic(path: string, content: string) {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, content, "utf8");
-  try {
-    renameSync(tmp, path);
-  } catch {
-    writeFileSync(path, content, "utf8");
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("fs").unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-  }
-}
+const FILE = join(process.cwd(), "data", "withdrawals.json");
 
 function ensureDb(): WithdrawalsDb {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(FILE)) {
-    const empty: WithdrawalsDb = { withdrawals: [] };
-    writeAtomic(FILE, JSON.stringify(empty, null, 2));
-    return empty;
-  }
-  try {
-    const parsed = JSON.parse(readFileSync(FILE, "utf8")) as WithdrawalsDb;
-    if (!Array.isArray(parsed.withdrawals)) return { withdrawals: [] };
-    return parsed;
-  } catch {
-    return { withdrawals: [] };
-  }
+  void initDurableStore();
+  const parsed = readJsonFile<WithdrawalsDb>(FILE);
+  if (parsed && Array.isArray(parsed.withdrawals)) return parsed;
+  const empty: WithdrawalsDb = { withdrawals: [] };
+  writeWithBackup(FILE, JSON.stringify(empty, null, 2));
+  return empty;
 }
 
 function saveDb(db: WithdrawalsDb) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeAtomic(FILE, JSON.stringify(db, null, 2));
+  writeWithBackup(FILE, JSON.stringify(db, null, 2));
 }
 
 export function listWithdrawals(): Withdrawal[] {
