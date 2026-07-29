@@ -795,25 +795,17 @@ export default function SuperAdminPaymentsPage() {
         </div>
 
         <div className="rounded-xl border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-          <p className="font-semibold text-foreground">PawaPay POST /payouts</p>
+          <p className="font-semibold text-foreground">PawaPay POST /v2/payouts</p>
           <p>
-            Sends <code className="text-[11px]">payoutId</code>,{" "}
-            <code className="text-[11px]">amount</code>,{" "}
-            <code className="text-[11px]">currency</code> (UGX),{" "}
-            <code className="text-[11px]">correspondent</code> (AIRTEL_OAPI_UGA / MTN_MOMO_UGA),
-            and recipient MSISDN. Status: ACCEPTED / ENQUEUED / REJECTED → poll until COMPLETED.
+            Matches PawaPay’s documented payload:{" "}
+            <code className="text-[11px]">phoneNumber</code> = number you type,{" "}
+            <code className="text-[11px]">provider</code> = AIRTEL_OAPI_UGA or MTN_MOMO_UGA.
+            Wallet must have balance. Poll <code className="text-[11px]">GET /v2/payouts/{"{payoutId}"}</code>.
           </p>
           {capabilities && !capabilities.payoutsEnabled && (
             <p className="text-amber-700 dark:text-amber-400">
-              active-conf may not list PAYOUT yet — we still call the API; PawaPay accepts or
-              rejects. Merchant: {capabilities.merchantName || "—"}.
-            </p>
-          )}
-          {capabilities?.payoutsEnabled && (
-            <p className="text-emerald-700 dark:text-emerald-400 font-semibold">
-              PAYOUT listed on active-conf
-              {capabilities.airtelPayout ? " · Airtel" : ""}
-              {capabilities.mtnPayout ? " · MTN" : ""}
+              If withdraw fails with PAYOUTS_NOT_ALLOWED, ask PawaPay to enable payouts on this
+              merchant. Merchant: {capabilities.merchantName || "—"}.
             </p>
           )}
         </div>

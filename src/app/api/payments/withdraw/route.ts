@@ -111,20 +111,25 @@ export async function GET(request: Request) {
           })),
           api: {
             method: "POST",
-            path: "/payouts",
-            required: [
-              "payoutId (UUIDv4)",
-              "amount",
-              "currency",
-              "correspondent",
-              "recipient.MSISDN",
-            ],
-            asyncStatuses: ["ACCEPTED", "ENQUEUED", "REJECTED"],
-            poll: "GET /payouts/{payoutId}",
+            path: "/v2/payouts",
+            body: {
+              payoutId: "UUIDv4",
+              amount: "string",
+              currency: "UGX",
+              recipient: {
+                type: "MMO",
+                accountDetails: {
+                  phoneNumber: "2567XXXXXXXX",
+                  provider: "MTN_MOMO_UGA | AIRTEL_OAPI_UGA",
+                },
+              },
+            },
+            poll: "GET /v2/payouts/{payoutId}",
+            docs: "https://docs.pawapay.io/v2/api-reference/payouts/initiate-payout",
           },
           howToEnablePayouts: activeConf.payoutsEnabled
             ? null
-            : "active-conf may not list PAYOUT yet. Withdraw still calls POST /payouts — PawaPay accepts or rejects. If rejected, ask support to enable PAYOUT for AIRTEL_OAPI_UGA and MTN_MOMO_UGA (UGA/UGX).",
+            : "If PawaPay returns PAYOUTS_NOT_ALLOWED, ask support to enable payouts for MTN_MOMO_UGA and AIRTEL_OAPI_UGA. App now uses POST /v2/payouts as they documented.",
         },
         withdrawals: refreshed,
       },
@@ -138,11 +143,11 @@ export async function GET(request: Request) {
 }
 
 /**
- * POST — withdraw via PawaPay POST /payouts
+ * POST — withdraw via PawaPay POST /v2/payouts (support-recommended shape)
  * Body: { actorId, actorEmail, amount, phone, gateway: mtn_momo|airtel_money, note? }
  *
- * Sends: payoutId, amount, currency, correspondent, recipient MSISDN.
- * Async: ACCEPTED / ENQUEUED / REJECTED → poll GET /payouts/{payoutId}.
+ * recipient.accountDetails.phoneNumber = number YOU typed
+ * recipient.accountDetails.provider = MTN_MOMO_UGA | AIRTEL_OAPI_UGA
  */
 export async function POST(request: Request) {
   try {

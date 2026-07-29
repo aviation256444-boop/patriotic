@@ -1,37 +1,39 @@
 /**
- * PawaPay payouts — disburse merchant wallet → recipient MSISDN.
+ * PawaPay PAYOUTS — API v2 (as specified by PawaPay support)
  *
- * POST /payouts (async)
- * Required fields (PawaPay docs):
- *   - payoutId      UUIDv4 you generate
- *   - amount        string amount to disburse
- *   - currency      ISO 4217 (e.g. UGX)
- *   - correspondent MMO code (e.g. AIRTEL_OAPI_UGA, MTN_MOMO_UGA)
- *   - recipient     { type: "MSISDN", address: { value: "2567..." } }
- *   - customerTimestamp
- *   - statementDescription (4–22 alphanumeric)
+ * POST {base}/v2/payouts
+ * {
+ *   "payoutId": "<uuid>",
+ *   "amount": "100",
+ *   "currency": "UGX",
+ *   "recipient": {
+ *     "type": "MMO",
+ *     "accountDetails": {
+ *       "phoneNumber": "2567XXXXXXXX",
+ *       "provider": "MTN_MOMO_UGA" | "AIRTEL_OAPI_UGA"
+ *     }
+ *   },
+ *   "customerMessage": "PYU Withdraw"   // optional, 4–22 alnum
+ * }
  *
- * Initiation status: ACCEPTED | ENQUEUED | REJECTED | DUPLICATE_IGNORED
- * Final status: poll GET /payouts/{payoutId} or callback → COMPLETED | FAILED
+ * GET {base}/v2/payouts/{payoutId}
+ * → { status: "FOUND", data: { status: "COMPLETED"|... } } | { status: "NOT_FOUND" }
+ *
+ * Docs: https://docs.pawapay.io/v2/api-reference/payouts/initiate-payout
  */
 
 import { randomUUID } from "crypto";
 import {
   getPawaPayBaseUrl,
   getPawaPayApiToken,
-  getPawaPayCountry,
   getPawaPayCurrency,
   hasPawaPayCredentials,
   PAWAPAY_MTN_UGA,
   PAWAPAY_AIRTEL_UGA,
   getPawaPayEnv,
 } from "./config";
-import {
-  normalizePawaPayMsisdn,
-  formatPawaPayAmount,
-  type PawaPayGateway,
-} from "./deposits";
-import { getActiveConf, humanizePawaPayError } from "./active-conf";
+import { normalizePawaPayMsisdn, type PawaPayGateway } from "./deposits";
+import { humanizePawaPayError } from "./active-conf";
 
 export type PayoutInput = {
   payoutId?: string;
@@ -40,8 +42,8 @@ export type PayoutInput = {
   phone: string;
   gateway: PawaPayGateway;
   statementDescription?: string;
+  clientReferenceId?: string;
   metadata?: { fieldName: string; fieldValue: string; isPII?: boolean }[];
-  /** When true, skip local active-conf gate and always POST /payouts */
   forceAttempt?: boolean;
 };
 
@@ -57,6 +59,7 @@ export type PayoutResult = {
   correspondent?: string;
   country?: string;
   live?: boolean;
+  apiVersion?: "v2";
   raw?: unknown;
 };
 
@@ -66,7 +69,6 @@ export type PayoutStatusResult = {
   rawStatus?: string;
   reason?: string;
   error?: string;
-  /** Full fields from GET /payouts/{payoutId} (docs response shape) */
   amount?: string;
   currency?: string;
   country?: string;
@@ -86,6 +88,7 @@ function authHeaders(): Record<string, string> {
   };
 }
 
+/** Provider code for v2 recipient.accountDetails.provider */
 export function correspondentForGateway(gateway: PawaPayGateway): string {
   if (gateway === "airtel_money") {
     return process.env.PAWAPAY_AIRTEL_CORRESPONDENT || PAWAPAY_AIRTEL_UGA;
@@ -93,7 +96,20 @@ export function correspondentForGateway(gateway: PawaPayGateway): string {
   return process.env.PAWAPAY_MTN_CORRESPONDENT || PAWAPAY_MTN_UGA;
 }
 
-function sanitizeStatement(text: string): string {
+export const providerForGateway = correspondentForGateway;
+
+/** UGX amounts: integer string (Airtel has no decimals; safe for both) */
+function formatPayoutAmount(amount: number, gateway: PawaPayGateway): string {
+  const n = Math.round(Number(amount));
+  if (!Number.isFinite(n) || n < 1) return "";
+  // MTN UGA historically allowed 2 decimals; integer is accepted for both
+  if (gateway === "mtn_momo" && process.env.PAWAPAY_MTN_AMOUNT_DECIMALS === "2") {
+    return n.toFixed(2);
+  }
+  return String(n);
+}
+
+function sanitizeCustomerMessage(text: string): string {
   const cleaned = text
     .replace(/[^a-zA-Z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
@@ -104,13 +120,12 @@ function sanitizeStatement(text: string): string {
 }
 
 /**
- * POST /payouts — initiate disbursement.
- * PawaPay decides ACCEPTED / ENQUEUED / REJECTED.
+ * POST /v2/payouts — initiate disbursement to any MSISDN you choose.
  */
 export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> {
-  const amountStr = formatPawaPayAmount(input.amount, input.gateway);
+  const amountStr = formatPayoutAmount(input.amount, input.gateway);
   const currency = (input.currency || getPawaPayCurrency()).toUpperCase();
-  const msisdn = normalizePawaPayMsisdn(input.phone);
+  const phoneNumber = normalizePawaPayMsisdn(input.phone);
   const payoutId =
     input.payoutId &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -118,92 +133,83 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     )
       ? input.payoutId
       : randomUUID();
-  const correspondent = correspondentForGateway(input.gateway);
-  const country = getPawaPayCountry();
+  const provider = providerForGateway(input.gateway);
 
-  if (!amountStr || Number(amountStr) < 1) {
-    return { ok: false, error: "Invalid amount" };
-  }
-  if (Number(amountStr) < 500) {
+  if (!amountStr || Number(amountStr) < 500) {
     return { ok: false, error: "Minimum payout amount is UGX 500" };
   }
   if (Number(amountStr) > 5_000_000) {
     return { ok: false, error: "Maximum payout amount is UGX 5,000,000" };
   }
-  if (!msisdn || msisdn.length < 11 || msisdn.length > 15) {
+  if (!phoneNumber || phoneNumber.length < 11 || phoneNumber.length > 15) {
     return {
       ok: false,
-      error: "Invalid recipient MSISDN (use e.g. 0752 123 456 → 256752123456)",
+      error:
+        "Invalid phoneNumber. Use digits with country code, e.g. 2567XXXXXXXX (no + or spaces).",
+    };
+  }
+  if (phoneNumber.startsWith("0")) {
+    return {
+      ok: false,
+      error: "phoneNumber must not start with 0 — use 256… format",
     };
   }
 
   if (!hasPawaPayCredentials()) {
     return {
       ok: false,
-      error:
-        "PawaPay is not configured. Set PAWAPAY_API_TOKEN on the server.",
+      error: "PawaPay is not configured. Set PAWAPAY_API_TOKEN on the server.",
       payoutId,
-      msisdn,
+      msisdn: phoneNumber,
       amount: amountStr,
       currency,
-      correspondent,
-      country,
+      correspondent: provider,
     };
   }
 
-  // Soft check only — still POST so PawaPay is the source of truth
-  let confWarning: string | undefined;
-  try {
-    const conf = await getActiveConf(true);
-    if (conf.ok) {
-      const ops =
-        conf.correspondents.find((c) => c.correspondent === correspondent)
-          ?.operations || [];
-      if (!ops.includes("PAYOUT")) {
-        confWarning = `active-conf lists ${ops.join(", ") || "no ops"} for ${correspondent} (no PAYOUT). Still attempting POST /payouts.`;
-        console.warn("[payout]", confWarning);
-      }
-    }
-  } catch {
-    /* ignore conf errors */
-  }
-
-  const safeMeta = (input.metadata || [])
-    .filter((m) => m.fieldName && m.fieldValue)
-    .slice(0, 5)
-    .map((m) => ({
-      fieldName:
-        String(m.fieldName).replace(/[^a-zA-Z0-9_]/g, "").slice(0, 32) || "meta",
-      fieldValue: String(m.fieldValue).slice(0, 64),
-      ...(m.isPII ? { isPII: true } : {}),
-    }));
-
-  // Official PawaPay payout body
+  // Exact shape from PawaPay support + official v2 docs
   const body: Record<string, unknown> = {
     payoutId,
     amount: amountStr,
     currency,
-    country,
-    correspondent,
     recipient: {
-      type: "MSISDN",
-      address: { value: msisdn },
+      type: "MMO",
+      accountDetails: {
+        phoneNumber,
+        provider,
+      },
     },
-    customerTimestamp: new Date().toISOString(),
-    statementDescription: sanitizeStatement(
+    customerMessage: sanitizeCustomerMessage(
       input.statementDescription || "PYU Withdraw"
     ),
   };
-  if (safeMeta.length) body.metadata = safeMeta;
 
-  const url = `${getPawaPayBaseUrl()}/payouts`;
-  console.info("[payout] POST", url, {
+  if (input.clientReferenceId) {
+    body.clientReferenceId = String(input.clientReferenceId).slice(0, 64);
+  }
+
+  // v2 metadata: array of single-key objects
+  if (input.metadata?.length) {
+    body.metadata = input.metadata.slice(0, 10).map((m) => {
+      const key =
+        String(m.fieldName || "meta")
+          .replace(/[^a-zA-Z0-9_]/g, "")
+          .slice(0, 32) || "meta";
+      const entry: Record<string, string | boolean> = {
+        [key]: String(m.fieldValue).slice(0, 64),
+      };
+      if (m.isPII) entry.isPII = true;
+      return entry;
+    });
+  }
+
+  const url = `${getPawaPayBaseUrl()}/v2/payouts`;
+  console.info("[payout-v2] POST", url, {
     payoutId,
     amount: amountStr,
     currency,
-    country,
-    correspondent,
-    msisdn,
+    provider,
+    phoneNumber,
     env: getPawaPayEnv(),
   });
 
@@ -221,14 +227,23 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     /* raw */
   }
 
+  const failureReason = (json.failureReason || {}) as {
+    failureCode?: string;
+    failureMessage?: string;
+  };
+  // Some responses nest failure under status REJECTED
+  const failCode = failureReason.failureCode;
+  const failMsg = failureReason.failureMessage;
+
   if (!res.ok) {
-    console.error("PawaPay payout HTTP error", res.status, text, {
+    console.error("PawaPay v2 payout HTTP error", res.status, text, {
       env: getPawaPayEnv(),
-      msisdn,
+      phoneNumber,
       amount: amountStr,
-      correspondent,
+      provider,
     });
     const msg =
+      failMsg ||
       (json.errorMessage as string) ||
       (json.message as string) ||
       text ||
@@ -236,54 +251,48 @@ export async function initiatePayout(input: PayoutInput): Promise<PayoutResult> 
     return {
       ok: false,
       error: humanizePawaPayError(String(msg), input.gateway).slice(0, 600),
-      rejectionCode: "HTTP_ERROR",
-      payoutId,
-      msisdn,
+      rejectionCode: failCode || "HTTP_ERROR",
+      payoutId: String(json.payoutId || payoutId),
+      msisdn: phoneNumber,
       amount: amountStr,
       currency,
-      correspondent,
-      country,
+      correspondent: provider,
+      apiVersion: "v2",
       raw: json,
     };
   }
 
   const status = String(json.status || "").toUpperCase();
 
-  // REJECTED on initiation — not accepted for processing
   if (status === "REJECTED") {
-    const reason = json.rejectionReason as
-      | { rejectionCode?: string; rejectionMessage?: string }
-      | undefined;
     const msg =
-      reason?.rejectionMessage ||
-      reason?.rejectionCode ||
-      "Payout rejected by PawaPay";
+      failMsg || failCode || "Payout rejected by PawaPay";
     return {
       ok: false,
-      error: `PawaPay: ${String(msg)}${confWarning ? ` (${confWarning})` : ""}`,
+      error: `PawaPay: ${String(msg)}`,
       payoutId: String(json.payoutId || payoutId),
       status: "REJECTED",
-      rejectionCode: reason?.rejectionCode,
-      msisdn,
+      rejectionCode: failCode,
+      msisdn: phoneNumber,
       amount: amountStr,
       currency,
-      correspondent,
-      country,
+      correspondent: provider,
+      apiVersion: "v2",
       raw: json,
     };
   }
 
-  // ACCEPTED | ENQUEUED | DUPLICATE_IGNORED → accepted for async processing
+  // ACCEPTED | DUPLICATE_IGNORED
   return {
     ok: true,
     payoutId: String(json.payoutId || payoutId),
     status: status || "ACCEPTED",
     live: true,
-    msisdn,
+    msisdn: phoneNumber,
     amount: amountStr,
     currency,
-    correspondent,
-    country,
+    correspondent: provider,
+    apiVersion: "v2",
     raw: json,
   };
 }
@@ -302,11 +311,11 @@ export function mapPayoutStatus(
     s === "EXPIRED"
   )
     return "FAILED";
-  // ACCEPTED, ENQUEUED, SUBMITTED, IN_RECONCILIATION → pending final callback
+  // ACCEPTED, ENQUEUED, PROCESSING, IN_RECONCILIATION, SUBMITTED
   return "PENDING";
 }
 
-/** GET /payouts/{payoutId} — poll until COMPLETED / FAILED */
+/** GET /v2/payouts/{payoutId} */
 export async function getPayoutStatus(
   payoutId: string
 ): Promise<PayoutStatusResult> {
@@ -321,7 +330,7 @@ export async function getPayoutStatus(
     return { status: "ERROR", error: "Missing payoutId" };
   }
 
-  const url = `${getPawaPayBaseUrl()}/payouts/${encodeURIComponent(payoutId)}`;
+  const url = `${getPawaPayBaseUrl()}/v2/payouts/${encodeURIComponent(payoutId)}`;
   const res = await fetch(url, {
     method: "GET",
     headers: authHeaders(),
@@ -337,76 +346,105 @@ export async function getPayoutStatus(
   }
 
   if (!res.ok) {
-    console.error("PawaPay payout status error", res.status, text);
-    const errObj = json as { errorMessage?: string } | null;
+    console.error("PawaPay v2 payout status error", res.status, text);
+    const errObj = json as {
+      errorMessage?: string;
+      failureReason?: { failureMessage?: string };
+    } | null;
     return {
       status: "ERROR",
       error:
-        errObj?.errorMessage || text || `Status check failed (${res.status})`,
+        errObj?.failureReason?.failureMessage ||
+        errObj?.errorMessage ||
+        text ||
+        `Status check failed (${res.status})`,
       payoutId,
       raw: json,
     };
   }
 
-  // Docs: "A list with at most one Payout is returned" (or [] if not found)
-  const list = Array.isArray(json) ? json : json ? [json] : [];
-  if (list.length === 0) {
+  const root = json as {
+    status?: string;
+    data?: Record<string, unknown>;
+  } | null;
+
+  // v2: { status: "FOUND"|"NOT_FOUND", data?: Payout }
+  // also tolerate v1 array form
+  if (root && root.status === "NOT_FOUND") {
     return {
       status: "PENDING",
       payoutId,
       rawStatus: "NOT_FOUND",
-      error:
-        "Payout not found (empty list). Wrong payoutId, wrong environment (sandbox vs live), or not created yet.",
+      error: "Payout not found in PawaPay (check payoutId and environment)",
       raw: json,
     };
   }
 
-  const row = list[0] as {
-    payoutId?: string;
-    status?: string;
-    amount?: string;
-    currency?: string;
-    country?: string;
-    correspondent?: string;
-    recipient?: { type?: string; address?: { value?: string } };
-    created?: string;
-    receivedByRecipient?: string;
-    failureReason?: { failureCode?: string; failureMessage?: string };
-  };
+  let row: Record<string, unknown> | null = null;
+  if (root?.status === "FOUND" && root.data) {
+    row = root.data;
+  } else if (Array.isArray(json) && json[0]) {
+    row = json[0] as Record<string, unknown>;
+  } else if (root && root.data) {
+    row = root.data;
+  } else if (root && typeof root.status === "string" && root.status !== "FOUND") {
+    // direct payout object
+    row = root as unknown as Record<string, unknown>;
+  }
+
+  if (!row) {
+    return {
+      status: "PENDING",
+      payoutId,
+      rawStatus: "UNKNOWN",
+      error: "Unexpected payout status response shape",
+      raw: json,
+    };
+  }
+
   const rawStatus = String(row.status || "UNKNOWN").toUpperCase();
   const mapped = mapPayoutStatus(rawStatus);
+  const failureReason = row.failureReason as
+    | { failureCode?: string; failureMessage?: string }
+    | undefined;
+  const recipient = row.recipient as
+    | {
+        accountDetails?: { phoneNumber?: string; provider?: string };
+        address?: { value?: string };
+      }
+    | undefined;
 
   return {
     status: mapped,
     rawStatus,
-    payoutId: row.payoutId || payoutId,
-    amount: row.amount,
-    currency: row.currency,
-    country: row.country,
-    correspondent: row.correspondent,
-    msisdn: row.recipient?.address?.value,
-    created: row.created,
-    receivedByRecipient: row.receivedByRecipient,
-    failureCode: row.failureReason?.failureCode,
-    reason:
-      row.failureReason?.failureMessage ||
-      row.failureReason?.failureCode ||
+    payoutId: String(row.payoutId || payoutId),
+    amount: row.amount != null ? String(row.amount) : undefined,
+    currency: row.currency != null ? String(row.currency) : undefined,
+    country: row.country != null ? String(row.country) : undefined,
+    correspondent:
+      recipient?.accountDetails?.provider != null
+        ? String(recipient.accountDetails.provider)
+        : row.correspondent != null
+          ? String(row.correspondent)
+          : undefined,
+    msisdn:
+      recipient?.accountDetails?.phoneNumber ||
+      recipient?.address?.value ||
       undefined,
+    created: row.created != null ? String(row.created) : undefined,
+    failureCode: failureReason?.failureCode,
+    reason: failureReason?.failureMessage || failureReason?.failureCode,
     raw: row,
   };
 }
 
-/** Poll a few times for final COMPLETED/FAILED after ACCEPTED/ENQUEUED */
 export async function waitForPayoutResult(
   payoutId: string,
   opts?: { attempts?: number; delayMs?: number }
 ): Promise<PayoutStatusResult> {
-  const attempts = opts?.attempts ?? 5;
-  const delayMs = opts?.delayMs ?? 2000;
-  let last: PayoutStatusResult = {
-    status: "PENDING",
-    payoutId,
-  };
+  const attempts = opts?.attempts ?? 6;
+  const delayMs = opts?.delayMs ?? 1500;
+  let last: PayoutStatusResult = { status: "PENDING", payoutId };
   for (let i = 0; i < attempts; i++) {
     last = await getPayoutStatus(payoutId);
     if (last.status === "SUCCESSFUL" || last.status === "FAILED") return last;
@@ -417,7 +455,6 @@ export async function waitForPayoutResult(
   return last;
 }
 
-/** Fetch merchant wallet balances (optional display). */
 export async function getWalletBalances(): Promise<{
   ok: boolean;
   balances: Array<{
@@ -433,11 +470,11 @@ export async function getWalletBalances(): Promise<{
     return { ok: false, balances: [], error: "No PawaPay token" };
   }
 
-  const country = getPawaPayCountry();
+  const base = getPawaPayBaseUrl();
   const candidates = [
-    `${getPawaPayBaseUrl()}/v1/wallet-balances/${country}`,
-    `${getPawaPayBaseUrl()}/wallet-balances/${country}`,
-    `${getPawaPayBaseUrl()}/v2/wallet-balances?country=${country}`,
+    `${base}/v2/wallet-balances`,
+    `${base}/v1/wallet-balances/UGA`,
+    `${base}/wallet-balances/UGA`,
   ];
 
   for (const url of candidates) {
@@ -466,14 +503,14 @@ export async function getWalletBalances(): Promise<{
               country: row.country,
               balance: row.balance,
               currency: row.currency,
-              mno: row.mno || row.correspondent || row.ownerName,
+              mno: row.mno || row.correspondent || row.provider || row.ownerName,
             };
           }),
           raw: json,
         };
       }
     } catch {
-      /* try next */
+      /* next */
     }
   }
 
