@@ -66,6 +66,15 @@ export type PayoutStatusResult = {
   rawStatus?: string;
   reason?: string;
   error?: string;
+  /** Full fields from GET /payouts/{payoutId} (docs response shape) */
+  amount?: string;
+  currency?: string;
+  country?: string;
+  correspondent?: string;
+  msisdn?: string;
+  created?: string;
+  receivedByRecipient?: string;
+  failureCode?: string;
   raw?: unknown;
 };
 
@@ -339,14 +348,15 @@ export async function getPayoutStatus(
     };
   }
 
-  // API may return array of at most one payout
+  // Docs: "A list with at most one Payout is returned" (or [] if not found)
   const list = Array.isArray(json) ? json : json ? [json] : [];
   if (list.length === 0) {
     return {
       status: "PENDING",
       payoutId,
-      rawStatus: "NOT_FOUND_YET",
-      error: "Payout not found yet",
+      rawStatus: "NOT_FOUND",
+      error:
+        "Payout not found (empty list). Wrong payoutId, wrong environment (sandbox vs live), or not created yet.",
       raw: json,
     };
   }
@@ -354,6 +364,13 @@ export async function getPayoutStatus(
   const row = list[0] as {
     payoutId?: string;
     status?: string;
+    amount?: string;
+    currency?: string;
+    country?: string;
+    correspondent?: string;
+    recipient?: { type?: string; address?: { value?: string } };
+    created?: string;
+    receivedByRecipient?: string;
     failureReason?: { failureCode?: string; failureMessage?: string };
   };
   const rawStatus = String(row.status || "UNKNOWN").toUpperCase();
@@ -363,6 +380,14 @@ export async function getPayoutStatus(
     status: mapped,
     rawStatus,
     payoutId: row.payoutId || payoutId,
+    amount: row.amount,
+    currency: row.currency,
+    country: row.country,
+    correspondent: row.correspondent,
+    msisdn: row.recipient?.address?.value,
+    created: row.created,
+    receivedByRecipient: row.receivedByRecipient,
+    failureCode: row.failureReason?.failureCode,
     reason:
       row.failureReason?.failureMessage ||
       row.failureReason?.failureCode ||
