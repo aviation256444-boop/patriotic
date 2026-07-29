@@ -807,18 +807,28 @@ export default function SuperAdminPaymentsPage() {
             <strong className="text-red-600">not</strong> supported. Use an{" "}
             <strong className="text-foreground">MTN number</strong> only for withdraw.
           </p>
-          {capabilities?.mtnPayout === false && (
-            <p className="text-amber-700 dark:text-amber-400">
-              Your production account still has no PAYOUT providers enabled (
-              {capabilities.payoutProviders?.length
-                ? capabilities.payoutProviders.join(", ")
-                : "none"}
-              ). Ask PawaPay to enable <strong>PAYOUT for MTN_MOMO_UGA</strong> on LIVE.
-              Merchant: {capabilities.merchantName || "—"}.
-            </p>
+          {capabilities && !capabilities.mtnPayout && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-1 text-amber-950 dark:text-amber-100">
+              <p className="font-semibold text-sm">PawaPay: payouts not enabled on this merchant yet</p>
+              <p>
+                <code className="text-[11px]">GET /v2/active-conf?country=UGA&amp;operationType=PAYOUT</code>{" "}
+                returns no providers — so every withdraw gets{" "}
+                <code className="text-[11px]">PAYOUTS_NOT_ALLOWED</code>, including MTN.
+              </p>
+              <p>
+                This is <strong>not</strong> a bug in the app or your phone number. Wait until
+                PawaPay enables <strong>MTN_MOMO_UGA</strong> under PAYOUT on production. Then
+                conf will show country UGA + provider MTN_MOMO_UGA and withdraws will work.
+              </p>
+              <p className="text-[11px] opacity-90">
+                Merchant: {capabilities.merchantName || "—"}
+              </p>
+            </div>
           )}
           {capabilities?.mtnPayout && (
-            <p className="text-emerald-700 font-semibold">MTN payout configured on account ✓</p>
+            <p className="text-emerald-700 font-semibold">
+              MTN payout configured on account ✓ — you can withdraw to any MTN number.
+            </p>
           )}
         </div>
 
@@ -939,7 +949,12 @@ export default function SuperAdminPaymentsPage() {
                 size="lg"
                 className="font-bold text-white flex-1 bg-[#004F71] hover:bg-[#003555]"
                 loading={withdrawing}
-                disabled={withdrawing || !phone.trim() || !amount.trim()}
+                disabled={
+                  withdrawing ||
+                  !phone.trim() ||
+                  !amount.trim() ||
+                  capabilities?.mtnPayout === false
+                }
                 onClick={() => {
                   setGateway("mtn_momo");
                   void submitWithdraw();
@@ -948,6 +963,11 @@ export default function SuperAdminPaymentsPage() {
                 {withdrawing ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" /> Sending to {phone.trim() || "…"}…
+                  </>
+                ) : capabilities?.mtnPayout === false ? (
+                  <>
+                    <Banknote className="h-4 w-4" />
+                    Waiting for PawaPay to enable MTN payout
                   </>
                 ) : (
                   <>
