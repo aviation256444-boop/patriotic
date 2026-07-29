@@ -493,6 +493,9 @@ export default function SuperAdminPaymentsPage() {
 
   const t = summary?.totals;
   const available = balance?.available ?? 0;
+  const moneyIn = balance?.collected ?? t?.totalRevenue ?? 0;
+  const moneyOut = balance?.withdrawn ?? 0;
+  const moneyReserved = balance?.reserved ?? 0;
 
   return (
     <div className="space-y-6">
@@ -500,14 +503,22 @@ export default function SuperAdminPaymentsPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <CreditCard className="h-6 w-6 text-emerald-600" />
-            Payments, refund &amp; withdraw
+            Finance dashboard
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Track donations and tickets. Refund returns money only to the number that paid.
-            Withdraw (when PAYOUT is enabled) sends to your own wallet.
+            Money in (donations + tickets), money out (withdrawals &amp; refunds), and{" "}
+            <Link href="/super-admin/attendees" className="text-emerald-600 font-semibold hover:underline">
+              event attendees
+            </Link>
+            .
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href="/super-admin/attendees">
+            <Button variant="outline">
+              <Ticket className="h-4 w-4" /> Event attendees
+            </Button>
+          </Link>
           <Button variant="outline" loading={loading} onClick={() => void load()}>
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
@@ -520,16 +531,101 @@ export default function SuperAdminPaymentsPage() {
                 ?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
           >
-            <Undo2 className="h-4 w-4" /> Refund payments
+            <Undo2 className="h-4 w-4" /> Money out · refund
           </Button>
           <Button
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-            onClick={() => setShowWithdraw((v) => !v)}
+            onClick={() => {
+              setShowWithdraw(true);
+              document
+                .getElementById("money-out-section")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
           >
-            <Banknote className="h-4 w-4" />
-            {showWithdraw ? "Close withdraw" : "Withdraw money"}
+            <Banknote className="h-4 w-4" /> Money out · withdraw
           </Button>
         </div>
+      </div>
+
+      {/* Money in / money out overview */}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <section
+          id="money-in-section"
+          className="rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-card to-card p-5 space-y-4"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold flex items-center gap-2 text-emerald-800 dark:text-emerald-300">
+              <ArrowDownToLine className="h-5 w-5 rotate-180" />
+              Money in
+            </h2>
+            <Badge className="bg-emerald-600 text-white border-0">Collected</Badge>
+          </div>
+          <p className="text-3xl font-black text-emerald-600 tabular-nums">
+            UGX {moneyIn.toLocaleString()}
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Donations</p>
+              <p className="font-bold">
+                UGX {(balance?.fromDonations ?? t?.donationRevenue ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Event tickets</p>
+              <p className="font-bold">
+                UGX {(balance?.fromTickets ?? t?.ticketRevenue ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Completed payments</p>
+              <p className="font-bold">{balance?.completedCount ?? t?.completedDonations ?? "—"}</p>
+            </div>
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Pending</p>
+              <p className="font-bold text-amber-600">
+                {balance?.pendingCount ?? t?.pendingDonations ?? "—"}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Ledger of completed live charges (donations + ticket payments). Demo charges excluded.
+          </p>
+        </section>
+
+        <section
+          id="money-out-section"
+          className="rounded-2xl border-2 border-red-500/25 bg-gradient-to-br from-red-500/10 via-card to-card p-5 space-y-4"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold flex items-center gap-2 text-red-800 dark:text-red-300">
+              <ArrowDownToLine className="h-5 w-5" />
+              Money out
+            </h2>
+            <Badge className="bg-red-600 text-white border-0">Outflows</Badge>
+          </div>
+          <p className="text-3xl font-black text-red-600 tabular-nums">
+            UGX {moneyOut.toLocaleString()}
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Withdrawn (completed)</p>
+              <p className="font-bold">UGX {moneyOut.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground">Reserved (pending out)</p>
+              <p className="font-bold text-amber-600">UGX {moneyReserved.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl bg-background/80 border border-border/50 p-3 col-span-2">
+              <p className="text-xs text-muted-foreground">Available to withdraw</p>
+              <p className="text-xl font-black text-emerald-600">
+                UGX {available.toLocaleString()}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Withdrawals and refunds reduce available balance. Use sections below for refund / payout.
+          </p>
+        </section>
       </div>
 
       {/* REFUND — manual by phone */}

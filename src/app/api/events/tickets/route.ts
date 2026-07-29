@@ -31,10 +31,23 @@ export async function GET(request: Request) {
     const eventId = searchParams.get("eventId");
     const userEmail = searchParams.get("userEmail")?.toLowerCase();
     const userId = searchParams.get("userId");
+    const status = searchParams.get("status")?.toLowerCase();
+    const includeCancelled = searchParams.get("includeCancelled") === "1";
 
     if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
     if (userEmail) tickets = tickets.filter((t) => t.userEmail.toLowerCase() === userEmail);
     if (userId) tickets = tickets.filter((t) => t.userId === userId);
+    if (status) {
+      tickets = tickets.filter((t) => t.status === status);
+    } else if (!includeCancelled) {
+      // default for member lists: hide cancelled unless requested
+      if (!searchParams.get("admin")) {
+        tickets = tickets.filter((t) => t.status !== "cancelled");
+      }
+    }
+    if (searchParams.get("admin") === "1") {
+      // Super admin attendee list — all statuses
+    }
 
     return NextResponse.json(
       { success: true, tickets, count: tickets.length },

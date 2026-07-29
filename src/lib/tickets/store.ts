@@ -42,6 +42,9 @@ export type EventTicket = {
   createdAt: string;
   updatedAt: string;
   checkedInAt?: string;
+  revokeReason?: string;
+  revokedAt?: string;
+  revokedBy?: string;
 };
 
 type TicketsDb = { tickets: EventTicket[] };
@@ -146,6 +149,37 @@ export function createConfirmedTicket(input: {
   db.tickets.push(ticket);
   saveDb(db);
   return ticket;
+}
+
+/**
+ * Super admin revoke: mark ticket cancelled (seats free for inventory).
+ * Does not auto-refund money — use payments refund separately.
+ */
+export function revokeTicket(
+  ticketId: string,
+  opts?: { reason?: string; revokedBy?: string }
+): EventTicket | null {
+  const db = ensureDb();
+  const idx = db.tickets.findIndex(
+    (t) =>
+      t.id === ticketId ||
+      t.ticketCode === ticketId ||
+      t.receiptId === ticketId
+  );
+  if (idx < 0) return null;
+  const t = db.tickets[idx];
+  if (t.status === "cancelled") return t;
+  const now = new Date().toISOString();
+  db.tickets[idx] = {
+    ...t,
+    status: "cancelled",
+    updatedAt: now,
+    revokeReason: opts?.reason || "Revoked by super admin",
+    revokedAt: now,
+    revokedBy: opts?.revokedBy,
+  };
+  saveDb(db);
+  return db.tickets[idx];
 }
 
 export function paymentStats() {
