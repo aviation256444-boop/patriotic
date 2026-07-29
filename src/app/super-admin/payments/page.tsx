@@ -146,6 +146,18 @@ function isValidUgPhone(raw: string): boolean {
   return false;
 }
 
+/** Normalize to 256… for display / PawaPay MSISDN preview */
+function toUgMsisdnPreview(raw: string): string {
+  let d = raw.replace(/\D/g, "");
+  if (d.startsWith("0") && d.length === 10) d = `256${d.slice(1)}`;
+  if (d.length === 9 && (d.startsWith("7") || d.startsWith("20"))) d = `256${d}`;
+  if (d.startsWith("2560")) d = `256${d.slice(4)}`;
+  return d;
+}
+
+const WITHDRAW_PHONE_KEY = "pyu_withdraw_recipient_phone";
+const WITHDRAW_GATEWAY_KEY = "pyu_withdraw_gateway";
+
 export default function SuperAdminPaymentsPage() {
   const user = useAuthStore((s) => s.user);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -172,7 +184,8 @@ export default function SuperAdminPaymentsPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [withdrawing, setWithdrawing] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
+  /** Open by default so recipient field is obvious */
+  const [showWithdraw, setShowWithdraw] = useState(true);
   const [refundable, setRefundable] = useState<RefundablePayment[]>([]);
   const [refundingId, setRefundingId] = useState<string | null>(null);
   const [manualRefundPhone, setManualRefundPhone] = useState("");
@@ -185,9 +198,23 @@ export default function SuperAdminPaymentsPage() {
   const [lookingUpPhone, setLookingUpPhone] = useState(false);
 
   const [gateway, setGateway] = useState<"airtel_money" | "mtn_momo">("airtel_money");
+  /** Recipient MSISDN — whatever the super admin types (never hardcoded) */
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [skipBalanceCheck, setSkipBalanceCheck] = useState(false);
+
+  // Restore last recipient number the admin chose (browser only — not a fixed server number)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(WITHDRAW_PHONE_KEY);
+      if (saved) setPhone(saved);
+      const gw = localStorage.getItem(WITHDRAW_GATEWAY_KEY);
+      if (gw === "mtn_momo" || gw === "airtel_money") setGateway(gw);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const actorQs = useCallback(() => {
     const q = new URLSearchParams();
@@ -243,23 +270,46 @@ export default function SuperAdminPaymentsPage() {
   const submitWithdraw = async () => {
     if (!user) return;
     const amt = Math.round(Number(amount));
+    const recipient = phone.trim();
     if (!amt || amt < 500) {
       toast.error("Enter at least UGX 500");
       return;
     }
-    if (balance && amt > balance.available) {
+    if (!skipBalanceCheck && balance && amt > balance.available) {
       toast.error(
-        `Only UGX ${balance.available.toLocaleString()} is available to withdraw`
+        `App ledger available is UGX ${balance.available.toLocaleString()}. Lower the amount or tick “PawaPay wallet has funds”.`
       );
       return;
     }
-    if (!isValidUgPhone(phone)) {
-      toast.error("Enter a valid UG mobile number (e.g. 0752 123 456)");
+    if (!recipient) {
+      toast.error("Type the mobile money number that should receive the money");
+      return;
+    }
+    if (!isValidUgPhone(recipient)) {
+      toast.error("Enter a valid UG number (07xx… or 2567…)");
       return;
     }
 
+    const msisdn = toUgMsisdnPreview(recipient);
+    const network = gateway === "airtel_money" ? "Airtel Money" : "MTN MoMo";
+    const ok = window.confirm(
+      `Send UGX ${amt.toLocaleString()} to this number?\n\n` +
+        `Network: ${network}\n` +
+        `You typed: ${recipient}\n` +
+        `PawaPay will pay: ${msisdn}\n\n` +
+        `Only this number receives the payout — change the field if it is wrong.`
+    );
+    if (!ok) return;
+
     setWithdrawing(true);
     try {
+      try {
+        localStorage.setItem(WITHDRAW_PHONE_KEY, recipient);
+        localStorage.setItem(WITHDRAW_GATEWAY_KEY, gateway);
+      } catch {
+        /* ignore */
+      }
+
       const res = await fetch("/api/payments/withdraw", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -267,25 +317,34 @@ export default function SuperAdminPaymentsPage() {
           actorId: user.id,
           actorEmail: user.email,
           amount: amt,
-          phone: phone.trim(),
+          /** Exact number super admin entered — not hardcoded */
+          phone: recipient,
           gateway,
-          note: note.trim() || undefined,
+          note: note.trim() || `Withdraw to ${recipient}`,
+          skipBalanceCheck,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Withdraw failed");
 
-      toast.success(data.message || "Withdrawal submitted");
+      const paidTo =
+        data.pawaPay?.msisdn || data.withdrawal?.msisdn || msisdn;
+      toast.success(
+        data.message ||
+          `Payout submitted to ${paidTo}`
+      );
       setAmount("");
       setNote("");
-      setShowWithdraw(false);
+      // Keep phone filled so admin can send again to the same chosen number
       if (data.balance) setBalance(data.balance);
       if (data.withdrawal) {
         setWithdrawals((prev) => [data.withdrawal as Withdrawal, ...prev]);
       }
       void load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Withdraw failed");
+      toast.error(e instanceof Error ? e.message : "Withdraw failed", {
+        duration: 8000,
+      });
     } finally {
       setWithdrawing(false);
     }
@@ -760,14 +819,14 @@ export default function SuperAdminPaymentsPage() {
         </div>
 
         {showWithdraw && (
-          <div className="rounded-2xl border border-border/60 bg-background p-5 space-y-4">
+          <div className="rounded-2xl border-2 border-emerald-500/40 bg-background p-5 space-y-4">
             <h2 className="font-bold flex items-center gap-2">
               <Smartphone className="h-4 w-4 text-emerald-600" />
-              Payout to your wallet (POST /payouts)
+              Withdraw to any number you choose
             </h2>
             <p className="text-sm text-muted-foreground">
-              Enter your Airtel or MTN number. We POST to PawaPay{" "}
-              <code className="text-xs">/payouts</code> — they accept or reject asynchronously.
+              Type the <strong className="text-foreground">exact mobile money number</strong> that
+              should receive the money. Nothing is hard-coded — payout goes only to what you enter.
             </p>
 
             <div className="grid sm:grid-cols-2 gap-3">
@@ -782,8 +841,8 @@ export default function SuperAdminPaymentsPage() {
                 )}
               >
                 <p className="font-bold text-[#ED1C24]">Airtel Money</p>
-                <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  correspondent: AIRTEL_OAPI_UGA
+                <p className="text-xs text-muted-foreground mt-1">
+                  Recipient must be an Airtel number
                 </p>
               </button>
               <button
@@ -797,30 +856,53 @@ export default function SuperAdminPaymentsPage() {
                 )}
               >
                 <p className="font-bold text-[#004F71]">MTN MoMo</p>
-                <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  correspondent: MTN_MOMO_UGA
+                <p className="text-xs text-muted-foreground mt-1">
+                  Recipient must be an MTN number
                 </p>
               </button>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="rounded-xl border-2 border-emerald-600/40 bg-emerald-500/5 p-4 space-y-3">
               <Input
-                label={
-                  gateway === "airtel_money"
-                    ? "Your Airtel Money number"
-                    : "Your MTN MoMo number"
-                }
-                placeholder={gateway === "airtel_money" ? "0752 123 456" : "0772 123 456"}
+                label="Recipient phone (type any number you want)"
+                placeholder="e.g. 07XX XXX XXX  — your number or another wallet"
                 inputMode="tel"
+                autoComplete="tel"
+                autoFocus
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
+              {phone.trim() && (
+                <div className="text-sm space-y-1">
+                  {isValidUgPhone(phone) ? (
+                    <p className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                      Money will be sent to:{" "}
+                      <span className="font-mono">{phone.trim()}</span>
+                      <span className="block text-xs font-normal text-muted-foreground mt-0.5">
+                        PawaPay MSISDN: {toUgMsisdnPreview(phone)} ·{" "}
+                        {gateway === "airtel_money" ? "Airtel" : "MTN"}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-700 text-xs">
+                      Enter a valid UG mobile number (07… or 256…)
+                    </p>
+                  )}
+                </div>
+              )}
+              {!phone.trim() && (
+                <p className="text-xs text-amber-700 font-medium">
+                  No number entered yet — type the wallet that should receive this withdraw.
+                </p>
+              )}
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Input
                   label="Amount (UGX)"
                   type="number"
                   min={500}
-                  max={available || undefined}
                   placeholder="e.g. 50000"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -833,14 +915,26 @@ export default function SuperAdminPaymentsPage() {
                   Use full available (UGX {available.toLocaleString()})
                 </button>
               </div>
+              <Input
+                label="Note (optional)"
+                placeholder="e.g. Weekly operations to operations phone"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
             </div>
 
-            <Input
-              label="Note (optional)"
-              placeholder="e.g. Weekly operations withdraw"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-border"
+                checked={skipBalanceCheck}
+                onChange={(e) => setSkipBalanceCheck(e.target.checked)}
+              />
+              <span>
+                PawaPay merchant wallet already has funds (skip app ledger balance check). Use if
+                donations cleared on free hosting but money is still in PawaPay.
+              </span>
+            </label>
 
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
@@ -857,13 +951,13 @@ export default function SuperAdminPaymentsPage() {
               >
                 {withdrawing ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Sending…
+                    <Loader2 className="h-4 w-4 animate-spin" /> Sending to {phone.trim() || "…"}…
                   </>
                 ) : (
                   <>
                     <Banknote className="h-4 w-4" />
-                    Withdraw UGX{" "}
-                    {(Math.round(Number(amount)) || 0).toLocaleString() || "—"}
+                    Send UGX {(Math.round(Number(amount)) || 0).toLocaleString() || "—"} →{" "}
+                    {phone.trim() || "type number first"}
                   </>
                 )}
               </Button>
