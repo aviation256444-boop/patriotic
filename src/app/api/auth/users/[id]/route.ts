@@ -5,8 +5,10 @@ import {
   setUserPassword,
   updateUserByAdmin,
   isValidRole,
+  promoteToSuperAdmin,
 } from "@/lib/auth/local-users";
 import type { MembershipStatus, UserRole } from "@/types";
+import { syncUserToCmsMembers } from "@/lib/auth/sync-member";
 
 export const dynamic = "force-dynamic";
 
@@ -66,33 +68,76 @@ export async function PATCH(request: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
-    let user = updateUserByAdmin(id, {
-      fullName: body.fullName !== undefined ? String(body.fullName) : undefined,
-      email: body.email !== undefined ? String(body.email) : undefined,
-      phone: body.phone !== undefined ? String(body.phone) : undefined,
-      role: body.role !== undefined ? (String(body.role) as UserRole) : undefined,
-      membershipStatus:
-        body.membershipStatus !== undefined
-          ? (String(body.membershipStatus) as MembershipStatus)
-          : undefined,
-      membershipNumber:
-        body.membershipNumber !== undefined
-          ? String(body.membershipNumber)
-          : undefined,
-      district: body.district !== undefined ? String(body.district) : undefined,
-      occupation:
-        body.occupation !== undefined ? String(body.occupation) : undefined,
-    });
+    const wantsSuper =
+      body.promoteSuperAdmin === true ||
+      body.grantFullPowers === true ||
+      String(body.role || "") === "super_admin";
+
+    let user = wantsSuper
+      ? promoteToSuperAdmin(id, String(body.actorEmail || actorId || ""))
+      : updateUserByAdmin(id, {
+          fullName:
+            body.fullName !== undefined ? String(body.fullName) : undefined,
+          email: body.email !== undefined ? String(body.email) : undefined,
+          phone: body.phone !== undefined ? String(body.phone) : undefined,
+          role:
+            body.role !== undefined
+              ? (String(body.role) as UserRole)
+              : undefined,
+          membershipStatus:
+            body.membershipStatus !== undefined
+              ? (String(body.membershipStatus) as MembershipStatus)
+              : undefined,
+          membershipNumber:
+            body.membershipNumber !== undefined
+              ? String(body.membershipNumber)
+              : undefined,
+          district:
+            body.district !== undefined ? String(body.district) : undefined,
+          occupation:
+            body.occupation !== undefined
+              ? String(body.occupation)
+              : undefined,
+        });
+
+    // Apply non-role profile fields even when promoting to super admin
+    if (wantsSuper) {
+      user = updateUserByAdmin(id, {
+        fullName:
+          body.fullName !== undefined ? String(body.fullName) : undefined,
+        email: body.email !== undefined ? String(body.email) : undefined,
+        phone: body.phone !== undefined ? String(body.phone) : undefined,
+        membershipNumber:
+          body.membershipNumber !== undefined
+            ? String(body.membershipNumber)
+            : undefined,
+        district:
+          body.district !== undefined ? String(body.district) : undefined,
+        occupation:
+          body.occupation !== undefined ? String(body.occupation) : undefined,
+      });
+    }
 
     if (body.password || body.newPassword) {
       const pw = String(body.password || body.newPassword || "");
       user = setUserPassword(id, pw);
     }
 
+    // Keep CMS members list in sync with elevated role
+    try {
+      await syncUserToCmsMembers(user, String(body.actorEmail || actorId || "admin"));
+    } catch {
+      /* non-fatal */
+    }
+
     return NextResponse.json({
       success: true,
       user,
-      message: "User credentials updated",
+      fullPowers: user.role === "super_admin",
+      message:
+        user.role === "super_admin"
+          ? "User is now Super Admin with full system powers. They should refresh or sign in again to load the Super Admin dashboard."
+          : "User credentials updated",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Update failed";

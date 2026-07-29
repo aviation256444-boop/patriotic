@@ -203,10 +203,14 @@ export default function SuperAdminUsersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update failed");
 
+      const becameSuper =
+        form.role === "super_admin" && editing!.role !== "super_admin";
       toast.success(
-        form.password.trim()
-          ? "Credentials & password updated"
-          : "User credentials updated"
+        becameSuper
+          ? `${form.fullName.trim() || "User"} is Super Admin with full powers — they should refresh or re-login`
+          : form.password.trim()
+            ? "Credentials & password updated"
+            : "User credentials updated"
       );
 
       if (editing!.id === actor.id && data.user) {
@@ -214,6 +218,11 @@ export default function SuperAdminUsersPage() {
         updateUser(data.user);
         if (typeof window !== "undefined") {
           localStorage.setItem("pyu_user", JSON.stringify(data.user));
+        }
+        if (data.user.role === "super_admin") {
+          window.setTimeout(() => {
+            window.location.href = "/super-admin";
+          }, 500);
         }
       }
 
@@ -230,7 +239,7 @@ export default function SuperAdminUsersPage() {
     if (!actor?.id) return;
     if (
       !confirm(
-        `Make ${u.fullName} a Super Admin? They will have full control of the system.`
+        `Make ${u.fullName} a Super Admin?\n\nThey will get FULL system powers:\n• Super Admin dashboard (/super-admin)\n• Manage all users & admins\n• CMS / website content\n• Payments, refunds & withdraw\n• Backups & system tools\n\nThey should sign out and sign in again (or refresh) to open Super Admin.`
       )
     ) {
       return;
@@ -243,11 +252,28 @@ export default function SuperAdminUsersPage() {
           actorId: actor.id,
           actorEmail: actor.email,
           role: "super_admin",
+          promoteSuperAdmin: true,
+          grantFullPowers: true,
+          membershipStatus: "active",
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Promotion failed");
-      toast.success(`${u.fullName} is now a Super Admin`);
+      toast.success(
+        data.message ||
+          `${u.fullName} is now Super Admin with full powers. Ask them to refresh or sign in again.`
+      );
+      // If promoting yourself, load powers immediately
+      if (u.id === actor.id && data.user) {
+        setUser(data.user);
+        updateUser(data.user);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("pyu_user", JSON.stringify(data.user));
+        }
+        window.setTimeout(() => {
+          window.location.href = "/super-admin";
+        }, 600);
+      }
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Promotion failed");

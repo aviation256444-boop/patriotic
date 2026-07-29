@@ -6,7 +6,7 @@
 
 import { createHash, randomUUID, scryptSync, timingSafeEqual } from "crypto";
 import { join } from "path";
-import type { User, UserRole } from "@/types";
+import type { MembershipStatus, User, UserRole } from "@/types";
 import {
   ensureDir,
   readJsonFile,
@@ -156,7 +156,11 @@ export function ensureUserRecord(input: {
       cur.role === "member" &&
       input.role !== "member"
     ) {
-      cur.role = input.role;
+      applyRolePrivileges(cur, input.role);
+    }
+    // Keep super_admin (and other elevated) privilege packs intact on every login
+    if (cur.role === "super_admin" || isElevatedRole(cur.role)) {
+      applyRolePrivileges(cur, cur.role);
     }
     if (!cur.membershipNumber) cur.membershipNumber = nextMembershipNumber();
     cur.lastLoginAt = new Date().toISOString();
@@ -273,9 +277,96 @@ export function isValidRole(role: string): role is UserRole {
   return ALLOWED_ROLES.includes(role as UserRole);
 }
 
+export function isElevatedRole(role: UserRole): boolean {
+  return role !== "member" && role !== "volunteer";
+}
+
+/**
+ * Full privilege packs when someone is promoted (or demoted).
+ * Super admin gets complete system powers: active membership, leader badges, staff flags.
+ */
+export function privilegesForRole(role: UserRole): {
+  membershipStatus: MembershipStatus;
+  badges: string[];
+  twoFactorEnabled: boolean;
+} {
+  if (role === "super_admin") {
+    return {
+      membershipStatus: "active",
+      badges: [
+        "super-admin",
+        "full-access",
+        "leader",
+        "staff",
+        "cms-editor",
+        "payments-admin",
+        "user-manager",
+      ],
+      twoFactorEnabled: true,
+    };
+  }
+  if (role === "admin") {
+    return {
+      membershipStatus: "active",
+      badges: ["admin", "leader", "staff", "cms-editor"],
+      twoFactorEnabled: true,
+    };
+  }
+  if (role === "regional_admin" || role === "district_admin") {
+    return {
+      membershipStatus: "active",
+      badges: ["leader", "staff", role.replace(/_/g, "-")],
+      twoFactorEnabled: true,
+    };
+  }
+  if (role === "volunteer") {
+    return {
+      membershipStatus: "active",
+      badges: ["volunteer"],
+      twoFactorEnabled: false,
+    };
+  }
+  return {
+    membershipStatus: "active",
+    badges: ["new-member"],
+    twoFactorEnabled: false,
+  };
+}
+
+function applyRolePrivileges(user: StoredUser, role: UserRole): void {
+  user.role = role;
+  const pack = privilegesForRole(role);
+  user.membershipStatus = pack.membershipStatus;
+  user.twoFactorEnabled = pack.twoFactorEnabled;
+  // Merge badges — keep existing non-conflicting ones, ensure pack is present
+  const existing = new Set(user.badges || []);
+  // Drop old role badges that no longer apply
+  const roleBadgeTokens = [
+    "super-admin",
+    "full-access",
+    "admin",
+    "leader",
+    "staff",
+    "cms-editor",
+    "payments-admin",
+    "user-manager",
+    "volunteer",
+    "new-member",
+    "regional-admin",
+    "district-admin",
+  ];
+  for (const b of roleBadgeTokens) existing.delete(b);
+  for (const b of pack.badges) existing.add(b);
+  user.badges = Array.from(existing);
+  if (!user.membershipNumber) {
+    user.membershipNumber = nextMembershipNumber();
+  }
+}
+
 /**
  * Super admin: update another user's profile credentials and/or role.
  * Passwords set via setUserPassword.
+ * Promoting to super_admin applies the full privilege pack.
  */
 export function updateUserByAdmin(
   userId: string,
@@ -295,6 +386,7 @@ export function updateUserByAdmin(
   if (idx < 0) throw new Error("User not found");
 
   const current = db.users[idx];
+  const previousRole = current.role;
 
   if (patch.email) {
     const email = patch.email.toLowerCase().trim();
@@ -321,10 +413,11 @@ export function updateUserByAdmin(
         throw new Error("Cannot demote the last super admin");
       }
     }
-    current.role = patch.role;
+    applyRolePrivileges(current, patch.role);
   }
 
-  if (patch.membershipStatus !== undefined) {
+  // Explicit membership fields can still override (except we always force active for super_admin)
+  if (patch.membershipStatus !== undefined && current.role !== "super_admin") {
     current.membershipStatus = patch.membershipStatus;
   }
   if (patch.membershipNumber !== undefined) {
@@ -337,16 +430,42 @@ export function updateUserByAdmin(
     current.occupation = patch.occupation.trim() || undefined;
   }
 
+  // Super admin always keeps full power pack even if only other fields updated
+  if (current.role === "super_admin") {
+    applyRolePrivileges(current, "super_admin");
+  }
+
   current.updatedAt = new Date().toISOString();
   db.users[idx] = current;
   saveDb(db);
   logActivity({
     kind: "user_update",
-    action: `Updated user ${current.email}`,
+    action:
+      patch.role && patch.role !== previousRole
+        ? `Promoted ${current.email}: ${previousRole} → ${patch.role} (full privileges applied)`
+        : `Updated user ${current.email}`,
     target: current.id,
-    meta: { fields: Object.keys(patch) },
+    meta: {
+      fields: Object.keys(patch),
+      previousRole,
+      role: current.role,
+      badges: current.badges,
+    },
   });
   return publicUser(current);
+}
+
+/** Promote any user to super_admin with full powers (convenience). */
+export function promoteToSuperAdmin(userId: string, actorEmail?: string): User {
+  const user = updateUserByAdmin(userId, { role: "super_admin" });
+  logActivity({
+    kind: "user_update",
+    action: `Granted full super admin powers to ${user.email}`,
+    actor: actorEmail,
+    target: user.id,
+    meta: { role: "super_admin", badges: user.badges },
+  });
+  return user;
 }
 
 /** Super admin or self: set a new password for a user. */
@@ -553,7 +672,6 @@ function createUserAccount(input: {
   }
 
   const now = new Date().toISOString();
-  const isElevated = role !== "member" && role !== "volunteer";
   const user: StoredUser = {
     id: randomUUID(),
     email,
@@ -567,11 +685,16 @@ function createUserAccount(input: {
     occupation: input.occupation?.trim() || undefined,
     passwordHash: hashPassword(password),
     volunteerHours: 0,
-    badges: isElevated ? ["leader"] : ["new-member"],
+    badges: [],
     createdAt: now,
     updatedAt: now,
-    twoFactorEnabled: isElevated,
+    twoFactorEnabled: false,
   };
+  // Full privilege pack for the chosen role (super_admin → all powers)
+  applyRolePrivileges(user, role);
+  if (input.membershipStatus && role !== "super_admin") {
+    user.membershipStatus = input.membershipStatus;
+  }
 
   db.users.push(user);
   saveDb(db);
